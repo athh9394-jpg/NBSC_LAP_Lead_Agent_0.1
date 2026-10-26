@@ -77,6 +77,22 @@ def startup():
     init_db()
 
 def require_token(authorization: Optional[str] = Header(default=None)):
+ADMIN_UID = os.getenv("ADMIN_UID", "")
+
+def verify_firebase_token(authorization: Optional[str] = Header(default=None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Firebase login required")
+
+    token = authorization.split(" ", 1)[1]
+
+    try:
+        decoded = auth.verify_id_token(token)
+        return {
+            "uid": decoded["uid"],
+            "is_admin": decoded["uid"] == ADMIN_UID
+        }
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid Firebase token")
     # Private/demo starter: set APP_API_TOKEN before using any lead endpoints.
     if not API_TOKEN:
         raise HTTPException(status_code=503, detail="Server setup incomplete: APP_API_TOKEN is not configured")
