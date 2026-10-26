@@ -14,7 +14,15 @@ from twilio.twiml.messaging_response import MessagingResponse
 import firebase_admin
 from firebase_admin import credentials, auth
 load_dotenv()
+FIREBASE_CREDENTIALS_JSON = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
 
+if not firebase_admin._apps:
+    import json
+    if not FIREBASE_CREDENTIALS_JSON:
+        raise RuntimeError("FIREBASE_SERVICE_ACCOUNT_JSON is not configured")
+    firebase_cred_data = json.loads(FIREBASE_CREDENTIALS_JSON)
+    firebase_cred = credentials.Certificate(firebase_cred_data)
+    firebase_admin.initialize_app(firebase_cred)
 DB_PATH = os.getenv("DB_PATH", "./leads.db")
 API_TOKEN = os.getenv("APP_API_TOKEN", "")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
