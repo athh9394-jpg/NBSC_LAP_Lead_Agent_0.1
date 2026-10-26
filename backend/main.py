@@ -11,7 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from twilio.request_validator import RequestValidator
 from twilio.twiml.messaging_response import MessagingResponse
-
+import firebase_admin
+from firebase_admin import credentials, auth
 load_dotenv()
 
 DB_PATH = os.getenv("DB_PATH", "./leads.db")
