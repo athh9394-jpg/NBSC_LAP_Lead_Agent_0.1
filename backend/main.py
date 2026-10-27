@@ -374,6 +374,8 @@ def create_lead(
                     data["product"],
                     data["source"],
                     data["budget"],
+                    data["monthly_income"],
+                    data["customer_type"],
                     data["consent_status"],
                     data["score"],
                     data["status"],
