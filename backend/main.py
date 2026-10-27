@@ -19,6 +19,13 @@ from twilio.twiml.messaging_response import MessagingResponse
 import firebase_admin
 from firebase_admin import auth, credentials
 
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+except ImportError:  # SQLite remains available for local development.
+    psycopg = None
+    dict_row = None
+
 
 load_dotenv()
 
@@ -26,6 +33,8 @@ APP_NAME = "NBSC LAP Lead Agent"
 API_TOKEN = os.getenv("APP_API_TOKEN", "").strip()
 ADMIN_UID = os.getenv("ADMIN_UID", "").strip()
 DB_PATH = os.getenv("DB_PATH", "./leads.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+USE_POSTGRES = bool(DATABASE_URL)
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
 FIREBASE_CREDENTIALS_JSON = os.getenv("FIREBASE_CREDENTIALS_JSON", "").strip()
 
@@ -72,10 +81,34 @@ def initialize_firebase() -> None:
 initialize_firebase()
 
 
-def connect_db() -> sqlite3.Connection:
-    connection = sqlite3.connect(DB_PATH, timeout=30)
-    connection.row_factory = sqlite3.Row
-    return connection
+class DatabaseConnection:
+    """Small adapter so the existing parameterized queries work with SQLite or PostgreSQL."""
+
+    def __init__(self):
+        if USE_POSTGRES:
+            if psycopg is None:
+                raise RuntimeError("DATABASE_URL is set but psycopg is not installed")
+            self.connection = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+            self.is_postgres = True
+        else:
+            self.connection = sqlite3.connect(DB_PATH, timeout=30)
+            self.connection.row_factory = sqlite3.Row
+            self.is_postgres = False
+
+    def execute(self, query, params=()):
+        if self.is_postgres:
+            query = query.replace("?", "%s")
+        return self.connection.execute(query, params)
+
+    def commit(self):
+        return self.connection.commit()
+
+    def close(self):
+        return self.connection.close()
+
+
+def connect_db() -> DatabaseConnection:
+    return DatabaseConnection()
 
 
 def init_db() -> None:
@@ -101,7 +134,20 @@ def init_db() -> None:
             )
             """
         )
-        columns = {row["name"] for row in connection.execute("PRAGMA table_info(leads)").fetchall()}
+        if USE_POSTGRES:
+            columns = {
+                row["name"]
+                for row in connection.execute(
+                    "SELECT column_name AS name FROM information_schema.columns "
+                    "WHERE table_schema = current_schema() AND table_name = 'leads'"
+                ).fetchall()
+            }
+        else:
+            columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(leads)").fetchall()
+            }
+
         if "monthly_income" not in columns:
             connection.execute("ALTER TABLE leads ADD COLUMN monthly_income REAL DEFAULT 0")
         if "customer_type" not in columns:
