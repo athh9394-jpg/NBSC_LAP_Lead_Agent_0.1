@@ -1,3 +1,4 @@
+
 import json
 import os
 import re
@@ -10,6 +11,7 @@ from typing import Optional
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from twilio.request_validator import RequestValidator
 from twilio.twiml.messaging_response import MessagingResponse
@@ -33,7 +35,11 @@ allowed_origins_raw = os.getenv("ALLOWED_ORIGINS", "*")
 ALLOWED_ORIGINS = (
     ["*"]
     if allowed_origins_raw.strip() == "*"
-    else [origin.strip() for origin in allowed_origins_raw.split(",") if origin.strip()]
+    else [
+        origin.strip()
+        for origin in allowed_origins_raw.split(",")
+        if origin.strip()
+    ]
 )
 
 app.add_middleware(
@@ -56,11 +62,10 @@ def initialize_firebase() -> None:
             firebase_credential = credentials.Certificate(credential_data)
             firebase_admin.initialize_app(firebase_credential)
         else:
-            # Uses GOOGLE_APPLICATION_CREDENTIALS or the runtime's default credentials.
+            # Uses GOOGLE_APPLICATION_CREDENTIALS or runtime default credentials.
             firebase_admin.initialize_app()
     except Exception:
         # API-token-protected endpoints can still run without Firebase Admin.
-        # Firebase verification will return a clear error if it is used.
         return
 
 
@@ -117,7 +122,10 @@ def verify_firebase_token(
         or " " in token
         or "\t" in token
     ):
-        raise HTTPException(status_code=401, detail="Invalid Authorization header")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid Authorization header",
+        )
 
     if not firebase_admin._apps:
         raise HTTPException(
@@ -130,48 +138,60 @@ def verify_firebase_token(
         uid = decoded.get("uid")
         if not uid:
             raise ValueError("Firebase token has no uid")
-        return {"uid": uid, "is_admin": bool(ADMIN_UID and uid == ADMIN_UID)}
+        return {
+            "uid": uid,
+            "is_admin": bool(ADMIN_UID and uid == ADMIN_UID),
+        }
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid Firebase token")
 
 
+# Enables the standard Authorize button in Swagger /docs.
+api_bearer = HTTPBearer(auto_error=False)
+
+
 def require_token(
-    authorization: Optional[str] = Header(default=None),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(api_bearer),
 ) -> bool:
     if not API_TOKEN:
         raise HTTPException(
             status_code=503,
             detail="APP_API_TOKEN is not configured on the server",
         )
-    if not authorization:
+
+    if credentials is None or not credentials.credentials:
         raise HTTPException(
             status_code=401,
             detail="Authorization header is missing",
         )
 
-    scheme, separator, token = authorization.partition(" ")
     if (
-        scheme.lower() != "bearer"
-        or separator != " "
-        or not token
-        or token != API_TOKEN
+        credentials.scheme.lower() != "bearer"
+        or credentials.credentials != API_TOKEN
     ):
-        raise HTTPException(status_code=401, detail="Authentication required")
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required",
+        )
 
     return True
 
 
 def normalize_phone(value: str) -> str:
     digits = re.sub(r"\D", "", value or "")
+
     if digits.startswith("0"):
         digits = digits[1:]
+
     if len(digits) == 10:
         digits = "91" + digits
+
     if not 10 <= len(digits) <= 15:
         raise HTTPException(
             status_code=422,
             detail="Phone number must contain 10 to 15 digits",
         )
+
     return "+" + digits
 
 
@@ -182,6 +202,7 @@ def calculate_score(
     product: str = "",
 ) -> int:
     score = 0
+
     if budget >= 1000000:
         score += 35
     elif budget >= 500000:
@@ -196,6 +217,7 @@ def calculate_score(
 
     if source.strip():
         score += 10
+
     if product.strip():
         score += 10
 
@@ -229,7 +251,11 @@ ALLOWED_FIELDS = {
 
 @app.get("/")
 def root() -> dict:
-    return {"name": APP_NAME, "status": "ok", "docs": "/docs"}
+    return {
+        "name": APP_NAME,
+        "status": "ok",
+        "docs": "/docs",
+    }
 
 
 @app.get("/health")
@@ -247,6 +273,7 @@ def create_lead(
     _authorized: bool = Depends(require_token),
 ) -> dict:
     data = payload.model_dump()
+
     data["name"] = data["name"].strip()
     data["phone"] = normalize_phone(data["phone"])
     data["city"] = data["city"].strip()
@@ -265,7 +292,10 @@ def create_lead(
         "true",
         "false",
     }:
-        raise HTTPException(status_code=422, detail="Invalid consent_status")
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid consent_status",
+        )
 
     data["score"] = calculate_score(
         data["budget"],
@@ -273,6 +303,7 @@ def create_lead(
         data["source"],
         data["product"],
     )
+
     now = datetime.now(timezone.utc).isoformat()
 
     with closing(connect_db()) as connection:
@@ -283,11 +314,13 @@ def create_lead(
 
         if existing:
             lead_id = existing["id"]
+
             connection.execute(
                 """
                 UPDATE leads
                 SET name = ?, city = ?, product = ?, source = ?, budget = ?,
-                    consent_status = ?, score = ?, status = ?, notes = ?, updated_at = ?
+                    consent_status = ?, score = ?, status = ?, notes = ?,
+                    updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -305,8 +338,10 @@ def create_lead(
                 ),
             )
             created = False
+
         else:
             lead_id = str(uuid.uuid4())
+
             connection.execute(
                 """
                 INSERT INTO leads (
@@ -334,12 +369,17 @@ def create_lead(
             created = True
 
         connection.commit()
+
         row = connection.execute(
             "SELECT * FROM leads WHERE id = ?",
             (lead_id,),
         ).fetchone()
 
-    return {"success": True, "created": created, "lead": dict(row)}
+    return {
+        "success": True,
+        "created": created,
+        "lead": dict(row),
+    }
 
 
 @app.get("/leads")
@@ -348,12 +388,18 @@ def list_leads(
     _authorized: bool = Depends(require_token),
 ) -> dict:
     limit = max(1, min(limit, 500))
+
     with closing(connect_db()) as connection:
         rows = connection.execute(
             "SELECT * FROM leads ORDER BY created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
-    return {"success": True, "count": len(rows), "leads": [dict(row) for row in rows]}
+
+    return {
+        "success": True,
+        "count": len(rows),
+        "leads": [dict(row) for row in rows],
+    }
 
 
 @app.get("/lead/{lead_id}")
@@ -368,21 +414,32 @@ def get_lead(
         ).fetchone()
 
     if not row:
-        raise HTTPException(status_code=404, detail="Lead not found")
-    return {"success": True, "lead": dict(row)}
+        raise HTTPException(
+            status_code=404,
+            detail="Lead not found",
+        )
+
+    return {
+        "success": True,
+        "lead": dict(row),
+    }
 
 
 @app.post("/webhook/whatsapp")
 async def whatsapp_webhook(request: Request) -> Response:
     form = await request.form()
 
-    # Validate Twilio's signature when a Twilio auth token is configured.
+    # Validate Twilio's signature when an auth token is configured.
     if TWILIO_AUTH_TOKEN:
         signature = request.headers.get("X-Twilio-Signature", "")
         validator = RequestValidator(TWILIO_AUTH_TOKEN)
         form_data = {key: value for key, value in form.items()}
+
         if not validator.validate(str(request.url), form_data, signature):
-            raise HTTPException(status_code=403, detail="Invalid Twilio signature")
+            raise HTTPException(
+                status_code=403,
+                detail="Invalid Twilio signature",
+            )
 
     incoming_body = str(form.get("Body", "")).strip().lower()
     response = MessagingResponse()
@@ -394,21 +451,27 @@ async def whatsapp_webhook(request: Request) -> Response:
             "mana karne ke liye NO reply karein. Kripya PAN, Aadhaar ya bank "
             "documents WhatsApp par na bhejein."
         )
+
     elif incoming_body in {"yes", "haan", "ha", "y"}:
         response.message(
             "Dhanyavaad. Aapki follow-up consent note kar li gayi hai. "
             "Team secure system se sampark karegi. Kripya PAN, Aadhaar ya "
             "bank documents WhatsApp par na bhejein."
         )
+
     elif incoming_body in {"no", "nahi", "nahin", "n"}:
         response.message(
             "Theek hai. Aapne follow-up se mana kiya hai. "
             "Aapko is request par aage follow-up nahi kiya jayega."
         )
+
     else:
         response.message(
             "Madad ke liye HI reply karein. Kripya PAN, Aadhaar ya bank "
             "documents WhatsApp par na bhejein."
         )
 
-    return Response(content=str(response), media_type="application/xml")
+    return Response(
+        content=str(response),
+        media_type="application/xml",
+    )
