@@ -1,286 +1,414 @@
+import json
 import os
 import re
 import sqlite3
+import uuid
 from contextlib import closing
 from datetime import datetime, timezone
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from twilio.request_validator import RequestValidator
 from twilio.twiml.messaging_response import MessagingResponse
+
 import firebase_admin
-from firebase_admin import credentials, auth
+from firebase_admin import auth, credentials
+
+
 load_dotenv()
-FIREBASE_CREDENTIALS_JSON = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
 
-if not firebase_admin._apps:
-    import json
-    if not FIREBASE_CREDENTIALS_JSON:
-        raise RuntimeError("FIREBASE_SERVICE_ACCOUNT_JSON is not configured")
-    firebase_cred_data = json.loads(FIREBASE_CREDENTIALS_JSON)
-    firebase_cred = credentials.Certificate(firebase_cred_data)
-    firebase_admin.initialize_app(firebase_cred)
+APP_NAME = "NBSC LAP Lead Agent"
+API_TOKEN = os.getenv("APP_API_TOKEN", "").strip()
+ADMIN_UID = os.getenv("ADMIN_UID", "").strip()
 DB_PATH = os.getenv("DB_PATH", "./leads.db")
-API_TOKEN = os.getenv("APP_API_TOKEN", "")
-TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
-FRONTEND_ORIGINS = [x.strip() for x in os.getenv("FRONTEND_ORIGINS", "http://localhost:5173").split(",") if x.strip()]
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+FIREBASE_CREDENTIALS_JSON = os.getenv("FIREBASE_CREDENTIALS_JSON", "").strip()
 
-app = FastAPI(title="NBSC LAP Lead Agent", version="1.1.0")
+app = FastAPI(title=APP_NAME, version="1.0.0")
+
+allowed_origins_raw = os.getenv("ALLOWED_ORIGINS", "*")
+ALLOWED_ORIGINS = (
+    ["*"]
+    if allowed_origins_raw.strip() == "*"
+    else [origin.strip() for origin in allowed_origins_raw.split(",") if origin.strip()]
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=FRONTEND_ORIGINS,
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-Twilio-Signature"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False if "*" in ALLOWED_ORIGINS else True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-ALLOWED_FIELDS = {
-    "phone", "name", "city", "property_type", "property_value", "loan_amount",
-    "source", "employment_type", "monthly_income", "loan_purpose", "existing_emi",
-    "property_ownership", "consent_status", "lead_status", "qualification_score",
-    "qualification_label", "notes", "assigned_agent", "last_message"
-}
 
-def now_iso():
-    return datetime.now(timezone.utc).isoformat()
+def initialize_firebase() -> None:
+    """Initialize Firebase Admin only when credentials are configured."""
+    if firebase_admin._apps:
+        return
 
-def connect_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        if FIREBASE_CREDENTIALS_JSON:
+            credential_data = json.loads(FIREBASE_CREDENTIALS_JSON)
+            firebase_credential = credentials.Certificate(credential_data)
+            firebase_admin.initialize_app(firebase_credential)
+        else:
+            # Uses GOOGLE_APPLICATION_CREDENTIALS or the runtime's default credentials.
+            firebase_admin.initialize_app()
+    except Exception:
+        # API-token-protected endpoints can still run without Firebase Admin.
+        # Firebase verification will return a clear error if it is used.
+        return
 
-def init_db():
-    with closing(connect_db()) as conn:
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS leads (
-            id TEXT PRIMARY KEY,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            phone TEXT NOT NULL UNIQUE,
-            name TEXT, city TEXT, property_type TEXT,
-            property_value REAL, loan_amount REAL, source TEXT,
-            employment_type TEXT, monthly_income REAL, loan_purpose TEXT,
-            existing_emi TEXT, property_ownership TEXT, consent_status TEXT NOT NULL DEFAULT 'pending',
-            lead_status TEXT NOT NULL DEFAULT 'new',
-            qualification_score INTEGER NOT NULL DEFAULT 0,
-            qualification_label TEXT NOT NULL DEFAULT 'cold',
-            notes TEXT, assigned_agent TEXT, last_message TEXT
+
+initialize_firebase()
+
+
+def connect_db() -> sqlite3.Connection:
+    connection = sqlite3.connect(DB_PATH, timeout=30)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def init_db() -> None:
+    with closing(connect_db()) as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS leads (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                phone TEXT NOT NULL,
+                city TEXT DEFAULT '',
+                product TEXT DEFAULT '',
+                source TEXT DEFAULT '',
+                budget REAL DEFAULT 0,
+                consent_status TEXT DEFAULT 'pending',
+                score INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'new',
+                notes TEXT DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
         )
-        """)
-        conn.commit()
+        connection.commit()
+
 
 @app.on_event("startup")
-def startup():
+def startup() -> None:
     init_db()
-ADMIN_UID = os.getenv("ADMIN_UID", "")
 
-def verify_firebase_token(authorization: Optional[str] = Header(default=None)):
-if not authorization:
-raise HTTPException(status_code=401, detail="Firebase login required")
 
-scheme, separator, credentials = authorization.partition(" ")
-if (
-    scheme != "Bearer"
-    or separator != " "
-    or not credentials
-    or credentials != credentials.strip()
-    or " " in credentials
-    or "\t" in credentials
-):
-    raise HTTPException(status_code=401, detail="Firebase login required")
+def verify_firebase_token(
+    authorization: Optional[str] = Header(default=None),
+) -> dict:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Firebase login required")
 
-try:
-    decoded = auth.verify_id_token(credentials)
-    return {
-        "uid": decoded["uid"],
-        "is_admin": decoded["uid"] == ADMIN_UID
-    }
-except Exception:
-    raise HTTPException(status_code=401, detail="Invalid Firebase token")
+    scheme, separator, token = authorization.partition(" ")
+    if (
+        scheme.lower() != "bearer"
+        or separator != " "
+        or not token
+        or token != token.strip()
+        or " " in token
+        or "\t" in token
+    ):
+        raise HTTPException(status_code=401, detail="Invalid Authorization header")
 
-def require_token(authorization: Optional[str] = Header(default=None)):
-if not API_TOKEN:
-raise HTTPException(
-status_code=503,
-detail="Server setup incomplete: APP_API_TOKEN is not configured"
-)
+    if not firebase_admin._apps:
+        raise HTTPException(
+            status_code=503,
+            detail="Firebase Admin is not configured on the server",
+        )
 
-if not authorization:
-    raise HTTPException(
-        status_code=401,
-        detail="Authorization header is missing"
-    )
+    try:
+        decoded = auth.verify_id_token(token)
+        uid = decoded.get("uid")
+        if not uid:
+            raise ValueError("Firebase token has no uid")
+        return {"uid": uid, "is_admin": bool(ADMIN_UID and uid == ADMIN_UID)}
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid Firebase token")
 
-scheme, separator, credentials = authorization.partition(" ")
-if (
-    scheme != "Bearer"
-    or separator != " "
-    or credentials != API_TOKEN
-):
-    raise HTTPException(
-        status_code=401,
-        detail="Authentication required"
-    )
+
+def require_token(
+    authorization: Optional[str] = Header(default=None),
+) -> bool:
+    if not API_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="APP_API_TOKEN is not configured on the server",
+        )
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Authorization header is missing",
+        )
+
+    scheme, separator, token = authorization.partition(" ")
+    if (
+        scheme.lower() != "bearer"
+        or separator != " "
+        or not token
+        or token != API_TOKEN
+    ):
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    return True
+
+
 def normalize_phone(value: str) -> str:
     digits = re.sub(r"\D", "", value or "")
     if digits.startswith("0"):
         digits = digits[1:]
     if len(digits) == 10:
         digits = "91" + digits
-    if len(digits) < 10 or len(digits) > 15:
-        raise HTTPException(status_code=422, detail="Enter a valid phone number")
+    if not 10 <= len(digits) <= 15:
+        raise HTTPException(
+            status_code=422,
+            detail="Phone number must contain 10 to 15 digits",
+        )
     return "+" + digits
 
-def lead_dict(row):
-    result = dict(row)
-    # Do not expose phone number in the dashboard list; detail endpoint includes it for authorized users.
-    return result
 
-def calculate_score(data: dict) -> tuple[int, str]:
+def calculate_score(
+    budget: float,
+    consent_status: str,
+    source: str = "",
+    product: str = "",
+) -> int:
     score = 0
-    value = float(data.get("property_value") or 0)
-    loan = float(data.get("loan_amount") or 0)
-    income = float(data.get("monthly_income") or 0)
-    ltv = loan / value if value > 0 else 0
-
-    if value > 0 and loan > 0 and 0.20 <= ltv <= 0.70:
+    if budget >= 1000000:
+        score += 35
+    elif budget >= 500000:
         score += 25
-    elif loan > 0 and value > 0:
-        score -= 10
-
-    if income >= 60000:
-        score += 20
-    elif income >= 30000:
-        score += 10
-    else:
-        score -= 10
-
-    employment = (data.get("employment_type") or "").lower()
-    if employment in {"salaried", "self-employed", "business owner", "business_owner"}:
+    elif budget >= 100000:
         score += 15
-    if (data.get("loan_purpose") or "").strip():
-        score += 8
-
-    ownership = (data.get("property_ownership") or "").lower().strip()
-    if ownership in {"owned", "own", "fully owned", "fully_owned"}:
-        score += 10
-    elif ownership in {"mortgage", "partly owned", "partly_owned"}:
+    elif budget > 0:
         score += 5
 
-    emi = (data.get("existing_emi") or "").lower().strip()
-    if emi in {"no", "n", "none"}:
+    if consent_status.lower() in {"yes", "given", "consented", "true"}:
+        score += 25
+
+    if source.strip():
         score += 10
-    elif emi in {"yes", "y"}:
-        score -= 5
+    if product.strip():
+        score += 10
 
-    if (data.get("consent_status") or "").lower() == "approved":
-        score += 8
+    return min(score, 100)
 
-    score = max(0, min(100, score))
-    label = "hot" if score >= 70 else ("warm" if score >= 45 else "cold")
-    return score, label
 
 class LeadCreateRequest(BaseModel):
-    phone: str = Field(min_length=8, max_length=20)
-    name: Optional[str] = Field(default=None, max_length=100)
-    city: Optional[str] = Field(default=None, max_length=100)
-    property_type: Optional[str] = Field(default=None, max_length=80)
-    property_value: Optional[float] = Field(default=None, ge=0, le=1_000_000_000)
-    loan_amount: Optional[float] = Field(default=None, ge=0, le=1_000_000_000)
-    source: str = Field(default="website", max_length=80)
-    employment_type: Optional[str] = Field(default=None, max_length=80)
-    monthly_income: Optional[float] = Field(default=None, ge=0, le=100_000_000)
-    loan_purpose: Optional[str] = Field(default=None, max_length=200)
-    existing_emi: Optional[str] = Field(default=None, max_length=10)
-    property_ownership: Optional[str] = Field(default=None, max_length=80)
-    consent_status: str = Field(default="pending", max_length=20)
-    notes: Optional[str] = Field(default=None, max_length=2000)
+    name: str = Field(..., min_length=2, max_length=120)
+    phone: str = Field(..., min_length=10, max_length=30)
+    city: str = Field(default="", max_length=120)
+    product: str = Field(default="", max_length=120)
+    source: str = Field(default="website", max_length=120)
+    budget: float = Field(default=0, ge=0)
+    consent_status: str = Field(default="pending", max_length=30)
+    status: str = Field(default="new", max_length=50)
+    notes: str = Field(default="", max_length=2000)
+
+
+ALLOWED_FIELDS = {
+    "name",
+    "phone",
+    "city",
+    "product",
+    "source",
+    "budget",
+    "consent_status",
+    "status",
+    "notes",
+}
+
+
+@app.get("/")
+def root() -> dict:
+    return {"name": APP_NAME, "status": "ok", "docs": "/docs"}
+
 
 @app.get("/health")
-def health():
-    return {"status": "ok", "service": "NBSC LAP Lead Agent"}
+def health() -> dict:
+    return {
+        "status": "ok",
+        "service": APP_NAME,
+        "time": datetime.now(timezone.utc).isoformat(),
+    }
 
-@app.post("/lead", dependencies=[Depends(require_token)])
-def create_lead(payload: LeadCreateRequest):
+
+@app.post("/lead")
+def create_lead(
+    payload: LeadCreateRequest,
+    _authorized: bool = Depends(require_token),
+) -> dict:
     data = payload.model_dump()
+    data["name"] = data["name"].strip()
     data["phone"] = normalize_phone(data["phone"])
-    if data["consent_status"].lower() not in {"pending", "approved", "declined"}:
-        raise HTTPException(status_code=422, detail="consent_status must be pending, approved, or declined")
+    data["city"] = data["city"].strip()
+    data["product"] = data["product"].strip()
+    data["source"] = data["source"].strip()
+    data["consent_status"] = data["consent_status"].strip().lower()
+    data["status"] = data["status"].strip() or "new"
+    data["notes"] = data["notes"].strip()
 
-    score, label = calculate_score(data)
-    timestamp = now_iso()
-    with closing(connect_db()) as conn:
-        existing = conn.execute("SELECT id FROM leads WHERE phone=?", (data["phone"],)).fetchone()
+    if data["consent_status"] not in {
+        "pending",
+        "yes",
+        "no",
+        "given",
+        "consented",
+        "true",
+        "false",
+    }:
+        raise HTTPException(status_code=422, detail="Invalid consent_status")
+
+    data["score"] = calculate_score(
+        data["budget"],
+        data["consent_status"],
+        data["source"],
+        data["product"],
+    )
+    now = datetime.now(timezone.utc).isoformat()
+
+    with closing(connect_db()) as connection:
+        existing = connection.execute(
+            "SELECT id FROM leads WHERE phone = ?",
+            (data["phone"],),
+        ).fetchone()
+
         if existing:
             lead_id = existing["id"]
-            updates = {k: v for k, v in data.items() if k in ALLOWED_FIELDS and k != "phone" and v is not None}
-            updates.update({"updated_at": timestamp, "qualification_score": score, "qualification_label": label})
-            sql = ", ".join(f"{key}=?" for key in updates)
-            conn.execute(f"UPDATE leads SET {sql} WHERE id=?", (*updates.values(), lead_id))
-        else:
-            import uuid
-            lead_id = str(uuid.uuid4())
-            data.update({
-                "id": lead_id, "created_at": timestamp, "updated_at": timestamp,
-                "lead_status": "new", "qualification_score": score, "qualification_label": label,
-            })
-            cols = list(data.keys())
-            conn.execute(
-                f"INSERT INTO leads ({','.join(cols)}) VALUES ({','.join('?' for _ in cols)})",
-                [data[k] for k in cols]
+            connection.execute(
+                """
+                UPDATE leads
+                SET name = ?, city = ?, product = ?, source = ?, budget = ?,
+                    consent_status = ?, score = ?, status = ?, notes = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    data["name"],
+                    data["city"],
+                    data["product"],
+                    data["source"],
+                    data["budget"],
+                    data["consent_status"],
+                    data["score"],
+                    data["status"],
+                    data["notes"],
+                    now,
+                    lead_id,
+                ),
             )
-        conn.commit()
-        row = conn.execute("SELECT * FROM leads WHERE id=?", (lead_id,)).fetchone()
-    return lead_dict(row)
+            created = False
+        else:
+            lead_id = str(uuid.uuid4())
+            connection.execute(
+                """
+                INSERT INTO leads (
+                    id, name, phone, city, product, source, budget,
+                    consent_status, score, status, notes, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    lead_id,
+                    data["name"],
+                    data["phone"],
+                    data["city"],
+                    data["product"],
+                    data["source"],
+                    data["budget"],
+                    data["consent_status"],
+                    data["score"],
+                    data["status"],
+                    data["notes"],
+                    now,
+                    now,
+                ),
+            )
+            created = True
 
-@app.get("/leads", dependencies=[Depends(require_token)])
-def list_leads():
-    with closing(connect_db()) as conn:
-        rows = conn.execute("""
-            SELECT id, created_at, updated_at, name, city, source, property_value,
-                   loan_amount, employment_type, monthly_income, consent_status,
-                   lead_status, qualification_score, qualification_label, assigned_agent
-            FROM leads ORDER BY updated_at DESC LIMIT 500
-        """).fetchall()
-    return [dict(row) for row in rows]
+        connection.commit()
+        row = connection.execute(
+            "SELECT * FROM leads WHERE id = ?",
+            (lead_id,),
+        ).fetchone()
 
-@app.get("/lead/{lead_id}", dependencies=[Depends(require_token)])
-def get_lead(lead_id: str):
-    with closing(connect_db()) as conn:
-        row = conn.execute("SELECT * FROM leads WHERE id=?", (lead_id,)).fetchone()
+    return {"success": True, "created": created, "lead": dict(row)}
+
+
+@app.get("/leads")
+def list_leads(
+    limit: int = 100,
+    _authorized: bool = Depends(require_token),
+) -> dict:
+    limit = max(1, min(limit, 500))
+    with closing(connect_db()) as connection:
+        rows = connection.execute(
+            "SELECT * FROM leads ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return {"success": True, "count": len(rows), "leads": [dict(row) for row in rows]}
+
+
+@app.get("/lead/{lead_id}")
+def get_lead(
+    lead_id: str,
+    _authorized: bool = Depends(require_token),
+) -> dict:
+    with closing(connect_db()) as connection:
+        row = connection.execute(
+            "SELECT * FROM leads WHERE id = ?",
+            (lead_id,),
+        ).fetchone()
+
     if not row:
         raise HTTPException(status_code=404, detail="Lead not found")
-    return lead_dict(row)
+    return {"success": True, "lead": dict(row)}
+
 
 @app.post("/webhook/whatsapp")
-async def whatsapp_webhook(request: Request):
+async def whatsapp_webhook(request: Request) -> str:
     form = await request.form()
-    form_data = dict(form)
+
+    # Validate Twilio's signature when a Twilio auth token is configured.
     if TWILIO_AUTH_TOKEN:
         signature = request.headers.get("X-Twilio-Signature", "")
         validator = RequestValidator(TWILIO_AUTH_TOKEN)
-        # Twilio signature validation should be tested against the exact public URL and proxy setup.
+        form_data = {key: value for key, value in form.items()}
         if not validator.validate(str(request.url), form_data, signature):
             raise HTTPException(status_code=403, detail="Invalid Twilio signature")
 
-    body = str(form.get("Body", "")).strip().lower()
+    incoming_body = str(form.get("Body", "")).strip().lower()
     response = MessagingResponse()
-    if body in {"hi", "hello", "start", "namaste"}:
+
+    if incoming_body in {"hi", "hello", "start", "namaste"}:
         response.message(
-            "Namaste! NBSC LAP inquiry ke liye message karne ka dhanyavaad. "
-            "Kya aap chahte hain ki hamari team aapki inquiry par sampark kare? "
-            "Reply YES ya NO. PAN/Aadhaar ya bank documents WhatsApp par na bhejein."
+            "Namaste! NBSC LAP team se sampark karne ke liye dhanyavaad. "
+            "Agar aap follow-up ke liye sahmat hain, YES reply karein; "
+            "mana karne ke liye NO reply karein. Kripya PAN, Aadhaar ya bank "
+            "documents WhatsApp par na bhejein."
         )
-    elif body in {"yes", "haan", "ha", "y"}:
+    elif incoming_body in {"yes", "haan", "ha", "y"}:
         response.message(
-            "Dhanyavaad. Aapki consent note karne ke liye team ko secure system se follow-up karna hoga. "
-            "Kripya yahan PAN/Aadhaar ya bank documents share na karein."
+            "Dhanyavaad. Aapki follow-up consent note kar li gayi hai. "
+            "Team secure system se sampark karegi. Kripya PAN, Aadhaar ya "
+            "bank documents WhatsApp par na bhejein."
         )
-    elif body in {"no", "nahi", "nahin", "n"}:
-        response.message("Theek hai. Aapki request par follow-up nahi kiya jayega.")
+    elif incoming_body in {"no", "nahi", "nahin", "n"}:
+        response.message(
+            "Theek hai. Aapne follow-up se mana kiya hai. "
+            "Aapko is request par aage follow-up nahi kiya jayega."
+        )
     else:
-        response.message("Help ke liye HI bhejein. PAN/Aadhaar ya bank documents WhatsApp par na bhejein.")
+        response.message(
+            "Madad ke liye HI reply karein. Kripya PAN, Aadhaar ya bank "
+            "documents WhatsApp par na bhejein."
+        )
+
     return str(response)
