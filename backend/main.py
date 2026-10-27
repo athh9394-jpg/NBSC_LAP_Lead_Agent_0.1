@@ -90,6 +90,8 @@ def init_db() -> None:
                 product TEXT DEFAULT '',
                 source TEXT DEFAULT '',
                 budget REAL DEFAULT 0,
+                monthly_income REAL DEFAULT 0,
+                customer_type TEXT DEFAULT 'business',
                 consent_status TEXT DEFAULT 'pending',
                 score INTEGER DEFAULT 0,
                 status TEXT DEFAULT 'new',
@@ -99,6 +101,11 @@ def init_db() -> None:
             )
             """
         )
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(leads)").fetchall()}
+        if "monthly_income" not in columns:
+            connection.execute("ALTER TABLE leads ADD COLUMN monthly_income REAL DEFAULT 0")
+        if "customer_type" not in columns:
+            connection.execute("ALTER TABLE leads ADD COLUMN customer_type TEXT DEFAULT 'business'")
         connection.commit()
 
 
@@ -231,6 +238,8 @@ class LeadCreateRequest(BaseModel):
     product: str = Field(default="", max_length=120)
     source: str = Field(default="website", max_length=120)
     budget: float = Field(default=0, ge=0)
+    monthly_income: float = Field(default=0, ge=0)
+    customer_type: str = Field(default="business", max_length=20)
     consent_status: str = Field(default="pending", max_length=30)
     status: str = Field(default="new", max_length=50)
     notes: str = Field(default="", max_length=2000)
@@ -243,6 +252,8 @@ ALLOWED_FIELDS = {
     "product",
     "source",
     "budget",
+    "monthly_income",
+    "customer_type",
     "consent_status",
     "status",
     "notes",
@@ -279,6 +290,9 @@ def create_lead(
     data["city"] = data["city"].strip()
     data["product"] = data["product"].strip()
     data["source"] = data["source"].strip()
+    data["customer_type"] = data["customer_type"].strip().lower()
+    if data["customer_type"] not in {"business", "salary"}:
+        raise HTTPException(status_code=422, detail="customer_type must be business or salary")
     data["consent_status"] = data["consent_status"].strip().lower()
     data["status"] = data["status"].strip() or "new"
     data["notes"] = data["notes"].strip()
@@ -319,7 +333,7 @@ def create_lead(
                 """
                 UPDATE leads
                 SET name = ?, city = ?, product = ?, source = ?, budget = ?,
-                    consent_status = ?, score = ?, status = ?, notes = ?,
+                    monthly_income = ?, customer_type = ?, consent_status = ?, score = ?, status = ?, notes = ?,
                     updated_at = ?
                 WHERE id = ?
                 """,
@@ -329,6 +343,8 @@ def create_lead(
                     data["product"],
                     data["source"],
                     data["budget"],
+                    data["monthly_income"],
+                    data["customer_type"],
                     data["consent_status"],
                     data["score"],
                     data["status"],
@@ -346,9 +362,9 @@ def create_lead(
                 """
                 INSERT INTO leads (
                     id, name, phone, city, product, source, budget,
-                    consent_status, score, status, notes, created_at, updated_at
+                    monthly_income, customer_type, consent_status, score, status, notes, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     lead_id,
