@@ -39,3 +39,10 @@ Aapko project files upload karke browser-based coding environment mein run karna
 - The demo frontend token is for private testing only.
 - WhatsApp intake is deliberately minimal and does not yet implement the full conversational flow.
 - For public production use, replace the demo token setup with proper user login/roles and audit logs.
+
+## Admin-only backup (new)
+- Backend now has `GET /admin/backup.json`, which exports leads and follow-up history together in one JSON file.
+- This endpoint requires a valid Firebase ID token **and** the matching `ADMIN_UID` configured on Render. The regular shared frontend API token cannot access this backup endpoint.
+- Keep `ADMIN_UID` set to the actual admin user's Firebase Authentication UID. Keep Firebase Admin credentials configured on the backend; never put service-account JSON in frontend files or GitHub.
+- The export contains customer personal data. Store the downloaded file privately and do not upload it to a public GitHub repository or share it in chat.
+- This is a **manual export**, not an automatic backup. It does not by itself make Render's SQLite database persistent. Until persistent storage and a tested restore process are configured, do not treat the service as safe for critical customer records.
