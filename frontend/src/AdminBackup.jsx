@@ -55,7 +55,8 @@ export default function AdminBackup() {
       link.href = url;
       link.download = `nbsc-lap-backup-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
       document.body.appendChild(link); link.click(); link.remove();
-      URL.revokeObjectURL(url);
+      // Keep the blob URL alive briefly so Android WebView's native download bridge can read it.
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
       setMessage("Backup file download ho gayi. Is file ko private jagah par rakhein.");
     } catch (err) {
       setMessage(err?.message || "Backup download nahi hua. Admin UID / Firebase server config check karein.");
