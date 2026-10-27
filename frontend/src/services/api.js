@@ -1,5 +1,3 @@
-
- 
 const API_BASE = (
   import.meta.env.VITE_API_BASE_URL ||
   "https://nbsc-lap-backend-01.onrender.com"
@@ -18,41 +16,52 @@ async function request(path, options = {}) {
   });
 
   if (!res.ok) {
-    const message = await res.text();
-    throw new Error(`API ${res.status}: ${message || res.statusText}`);
-  }
-
-  const data = await res.json();
-
-  if (path === "/leads") {
-    // Backend se { success, count, leads: [...] } aata hai
-    const leads = Array.isArray(data) ? data : data?.leads;
-
-    if (!Array.isArray(leads)) {
-      throw new Error("Invalid API response: leads list missing");
+    let message = res.statusText;
+    try {
+      const body = await res.json();
+      message = body.detail || JSON.stringify(body);
+    } catch {
+      const bodyText = await res.text();
+      if (bodyText) message = bodyText;
     }
-
-    // Backend aur dashboard ke field names match karna
-    return leads.filter(Boolean).map((lead) => ({
-      ...lead,
-      lead_status: lead.lead_status ?? lead.status ?? "new",
-      qualification_score:
-        lead.qualification_score ?? lead.score ?? 0,
-      qualification_label:
-        lead.qualification_label ?? "cold",
-      loan_amount: lead.loan_amount ?? lead.budget ?? null,
-      monthly_income: lead.monthly_income ?? null
-    }));
+    throw new Error(`API ${res.status}: ${message}`);
   }
 
-  // Single lead endpoint ka response
-  return data;
+  return res.json();
 }
 
-export function fetchLeads() {
-  return request("/leads");
+function normalizeLead(lead) {
+  const score = Number(lead.qualification_score ?? lead.score ?? 0);
+  return {
+    ...lead,
+    lead_status: lead.lead_status ?? lead.status ?? "new",
+    qualification_score: score,
+    qualification_label:
+      lead.qualification_label ?? (score >= 60 ? "hot" : score >= 30 ? "warm" : "cold"),
+    loan_amount: lead.loan_amount ?? lead.budget ?? null,
+    monthly_income: lead.monthly_income ?? null,
+    customer_type: lead.customer_type ?? "business"
+  };
 }
 
-export function fetchLead(id) {
-  return request(`/lead/${encodeURIComponent(id)}`);
+export async function fetchLeads() {
+  const data = await request("/leads");
+  const leads = Array.isArray(data) ? data : data?.leads;
+  if (!Array.isArray(leads)) {
+    throw new Error("Invalid API response: leads list missing");
+  }
+  return leads.filter(Boolean).map(normalizeLead);
+}
+
+export async function fetchLead(id) {
+  const data = await request(`/lead/${encodeURIComponent(id)}`);
+  return data?.lead ? { ...data, lead: normalizeLead(data.lead) } : data;
+}
+
+export async function createLead(payload) {
+  const data = await request("/lead", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data?.lead ? { ...data, lead: normalizeLead(data.lead) } : data;
 }
