@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createLead, fetchLeads, fetchFollowups, addFollowup, updateLeadStatus } from "./services/api";
+import AdminBackup from "./AdminBackup.jsx";
 
 const emptyForm = {
   name: "", phone: "", city: "", customer_type: "business",
@@ -130,6 +131,8 @@ export default function App() {
         <div><div className="eyebrow">WORKSPACE / OVERVIEW</div><h1>Sales Dashboard</h1><p>NBSC LAP lead pipeline ka snapshot</p></div>
         <button onClick={load} className="refresh" disabled={loading}>↻ Refresh</button>
       </header>
+
+      <AdminBackup />
 
       <section className="stats">
         <Stat title="Total Leads" value={counts.total} color="blue" icon="▤" />
