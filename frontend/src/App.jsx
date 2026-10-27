@@ -181,8 +181,6 @@ export default function App() {
       </section></div>}
     </main>
   </div>;
-    </main>
-  </div>;
 }
 
 function Detail({label,value}) { return <div className="detail-item"><small>{label}</small><b>{value || "—"}</b></div>; }
