@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { createLead, fetchLeads } from "./services/api";
+import { createLead, fetchLeads, fetchFollowups, addFollowup, updateLeadStatus } from "./services/api";
 
 const emptyForm = {
   name: "", phone: "", city: "", customer_type: "business",
@@ -17,6 +17,12 @@ export default function App() {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [formMessage, setFormMessage] = useState("");
+  const [selectedLead, setSelectedLead] = useState(null);
+  const [followups, setFollowups] = useState([]);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [followupForm, setFollowupForm] = useState({channel:"call", outcome:"attempted", notes:""});
+  const [followupSaving, setFollowupSaving] = useState(false);
+  const [detailMessage, setDetailMessage] = useState("");
 
   async function load() {
     setLoading(true);
@@ -27,6 +33,38 @@ export default function App() {
   }
 
   useEffect(() => { load(); }, []);
+
+  async function openLead(lead) {
+    setSelectedLead(lead); setFollowups([]); setDetailMessage("");
+    setFollowupForm({channel:"call", outcome:"attempted", notes:""}); setDetailLoading(true);
+    try { setFollowups(await fetchFollowups(lead.id)); }
+    catch (e) { setDetailMessage("Follow-up history load nahi hui: " + (e.message || "API error")); }
+    finally { setDetailLoading(false); }
+  }
+
+  async function saveFollowup(event) {
+    event.preventDefault(); if (!selectedLead) return;
+    setFollowupSaving(true); setDetailMessage("");
+    try {
+      await addFollowup(selectedLead.id, followupForm);
+      setFollowupForm({channel:"call", outcome:"attempted", notes:""});
+      setFollowups(await fetchFollowups(selectedLead.id));
+      const updated = await fetchLeads(); setLeads(updated);
+      setSelectedLead(updated.find(x => String(x.id) === String(selectedLead.id)) || selectedLead);
+      setDetailMessage("Follow-up history save ho gayi.");
+    } catch(e) { setDetailMessage(e.message || "Follow-up save nahi hua."); }
+    finally { setFollowupSaving(false); }
+  }
+
+  async function changeStatus(status) {
+    if (!selectedLead) return;
+    setDetailMessage("");
+    try {
+      const updated = await updateLeadStatus(selectedLead.id, status);
+      setSelectedLead(updated); setLeads(current => current.map(x => String(x.id) === String(updated.id) ? updated : x));
+      setDetailMessage("Lead status update ho gaya.");
+    } catch(e) { setDetailMessage(e.message || "Status update nahi hua."); }
+  }
 
   function changeForm(event) {
     const { name, value } = event.target;
@@ -126,13 +164,32 @@ export default function App() {
         </div>
         {loading ? <div className="state">Leads load ho rahe hain…</div> : error ? <div className="error"><b>Connection error</b><p>{error}</p><p>Backend URL aur VITE_API_TOKEN / APP_API_TOKEN settings check karni hongi.</p><button onClick={load} className="refresh">Try again</button></div> : visible.length === 0 ? <div className="state">Abhi koi lead nahi hai, ya search/filter se match nahi mila.</div> :
         <div className="table-wrap"><table><thead><tr><th>LEAD</th><th>PHONE</th><th>CUSTOMER TYPE</th><th>CITY</th><th>LOAN AMOUNT</th><th>MONTHLY INCOME</th><th>PRIORITY</th><th>STATUS</th><th>SCORE</th></tr></thead><tbody>
-          {visible.map(lead=><tr key={lead.id}><td><div className="person"><span className="avatar">{(lead.name || "L").slice(0,1).toUpperCase()}</span><div><b>{lead.name || "Unnamed lead"}</b><small>{lead.source || "Unknown source"}</small></div></div></td><td>{lead.phone || "—"}</td><td><span className={`type-pill ${lead.customer_type || "business"}`}>{lead.customer_type === "salary" ? "Salary" : "Business"}</span></td><td>{lead.city || "—"}</td><td>{money(lead.loan_amount)}</td><td>{money(lead.monthly_income)}</td><td><span className={`badge ${lead.qualification_label || "cold"}`}>{lead.qualification_label || "cold"}</span></td><td><span className="status">{lead.lead_status || "new"}</span></td><td><b>{lead.qualification_score ?? 0}</b><span className="outof"> / 100</span></td></tr>)}
+          {visible.map(lead=><tr key={lead.id} className="clickable-row" onClick={() => openLead(lead)} title="Tap karke complete lead details dekhein"><td><div className="person"><span className="avatar">{(lead.name || "L").slice(0,1).toUpperCase()}</span><div><b>{lead.name || "Unnamed lead"}</b><small>{lead.source || "Unknown source"}</small></div></div></td><td>{lead.phone || "—"}</td><td><span className={`type-pill ${lead.customer_type || "business"}`}>{lead.customer_type === "salary" ? "Salary" : "Business"}</span></td><td>{lead.city || "—"}</td><td>{money(lead.loan_amount)}</td><td>{money(lead.monthly_income)}</td><td><span className={`badge ${lead.qualification_label || "cold"}`}>{lead.qualification_label || "cold"}</span></td><td><span className="status">{lead.lead_status || "new"}</span></td><td><b>{lead.qualification_score ?? 0}</b><span className="outof"> / 100</span></td></tr>)}
         </tbody></table></div>}
       </section>
       <footer>NBSC LAP Lead Agent · Lead score sirf sales follow-up priority ke liye hai, loan approval nahi.</footer>
+      {selectedLead && <div className="modal-backdrop" onClick={() => setSelectedLead(null)}><section className="lead-modal" role="dialog" aria-modal="true" aria-label="Lead details" onClick={e => e.stopPropagation()}>
+        <div className="modal-header"><div><span className="eyebrow">LEAD DETAILS</span><h2>{selectedLead.name || "Unnamed lead"}</h2><p>{selectedLead.city || "City not provided"} · {selectedLead.customer_type === "salary" ? "Salary customer" : "Business customer"}</p></div><button className="modal-close" onClick={() => setSelectedLead(null)} aria-label="Close">✕</button></div>
+        <div className="contact-actions"><a className="contact-button call" href={`tel:${String(selectedLead.phone || "").replace(/[^+\d]/g,"")}`}>📞 Call customer</a><a className="contact-button whatsapp" target="_blank" rel="noreferrer" href={`https://wa.me/${String(selectedLead.phone || "").replace(/\D/g,"").replace(/^0/,"")}`}>🟢 WhatsApp</a></div>
+        <div className="detail-grid"><Detail label="Phone" value={selectedLead.phone}/><Detail label="Product" value={selectedLead.product}/><Detail label="Loan amount" value={money(selectedLead.loan_amount)}/><Detail label="Monthly income" value={money(selectedLead.monthly_income)}/><Detail label="Lead source" value={selectedLead.source}/><Detail label="Consent" value={selectedLead.consent_status}/><Detail label="Priority score" value={`${selectedLead.qualification_score ?? 0}/100`}/><Detail label="Created" value={formatDate(selectedLead.created_at)}/></div>
+        <div className="conversion-box"><div><b>Lead conversion status</b><p>Abhi: <strong>{statusLabel(selectedLead.lead_status)}</strong></p></div><select value={selectedLead.lead_status || "new"} onChange={e => changeStatus(e.target.value)}><option value="new">New</option><option value="follow_up">Follow-up</option><option value="converted">Converted / Loan done</option><option value="not_converted">Not converted</option><option value="not_interested">Not interested</option></select></div>
+        <h3>Follow-up history <span className="pill">{followups.length} times</span></h3>
+        <form className="followup-form" onSubmit={saveFollowup}><label>Contact method<select value={followupForm.channel} onChange={e=>setFollowupForm({...followupForm,channel:e.target.value})}><option value="call">Phone call</option><option value="whatsapp">WhatsApp</option><option value="in_person">In person</option><option value="other">Other</option></select></label><label>Result<select value={followupForm.outcome} onChange={e=>setFollowupForm({...followupForm,outcome:e.target.value})}><option value="attempted">Attempted</option><option value="connected">Connected</option><option value="no_answer">No answer</option><option value="callback">Call back later</option><option value="interested">Interested</option><option value="not_interested">Not interested</option><option value="converted">Loan converted</option></select></label><label className="full-field">Notes<textarea rows="2" maxLength="2000" value={followupForm.notes} onChange={e=>setFollowupForm({...followupForm,notes:e.target.value})} placeholder="Is follow-up mein kya baat hui?"/></label><button className="primary-button" disabled={followupSaving}>{followupSaving ? "Saving..." : "Save follow-up"}</button></form>
+        {detailMessage && <p className="detail-message" role="status">{detailMessage}</p>}
+        <div className="history-list">{detailLoading ? <p>History load ho rahi hai…</p> : followups.length ? followups.map(f => <article className="history-item" key={f.id}><div><b>{channelLabel(f.channel)} · {outcomeLabel(f.outcome)}</b><small>{formatDate(f.created_at)}</small></div><p>{f.notes || "No notes added."}</p></article>) : <p>Abhi tak koi follow-up record nahi hai.</p>}</div>
+        {selectedLead.notes && <div className="original-notes"><b>Lead notes</b><p>{selectedLead.notes}</p></div>}
+      </section></div>}
+    </main>
+  </div>;
     </main>
   </div>;
 }
+
+function Detail({label,value}) { return <div className="detail-item"><small>{label}</small><b>{value || "—"}</b></div>; }
+function statusLabel(value) { return ({new:"New",follow_up:"Follow-up in progress",converted:"Converted / Loan done",not_converted:"Not converted",not_interested:"Not interested"})[value] || value || "New"; }
+function channelLabel(value) { return ({call:"Phone call",whatsapp:"WhatsApp",in_person:"In person",other:"Other"})[value] || value; }
+function outcomeLabel(value) { return ({attempted:"Attempted",connected:"Connected",no_answer:"No answer",callback:"Call back",interested:"Interested",not_interested:"Not interested",converted:"Converted"})[value] || value; }
+function formatDate(value) { if (!value) return "—"; const d = new Date(value); return Number.isNaN(d.getTime()) ? value : d.toLocaleString("en-IN", {dateStyle:"medium", timeStyle:"short"}); }
 
 function Stat({title,value,color,icon}) {
   return <div className="stat-card"><div className={`stat-icon ${color}`}>{icon}</div><div className="stat-title">{title}</div><div className="stat-value">{value}</div><div className="stat-foot">Current pipeline</div></div>;
