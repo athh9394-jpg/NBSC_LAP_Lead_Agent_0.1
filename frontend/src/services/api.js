@@ -65,3 +65,22 @@ export async function createLead(payload) {
   });
   return data?.lead ? { ...data, lead: normalizeLead(data.lead) } : data;
 }
+
+
+export async function fetchFollowups(id) {
+  const data = await request(`/lead/${encodeURIComponent(id)}/followups`);
+  return Array.isArray(data?.followups) ? data.followups : [];
+}
+
+export async function addFollowup(id, payload) {
+  return request(`/lead/${encodeURIComponent(id)}/followups`, {
+    method: "POST", body: JSON.stringify(payload)
+  });
+}
+
+export async function updateLeadStatus(id, status) {
+  const data = await request(`/lead/${encodeURIComponent(id)}/status`, {
+    method: "PATCH", body: JSON.stringify({ status })
+  });
+  return data?.lead ? normalizeLead(data.lead) : data;
+}
