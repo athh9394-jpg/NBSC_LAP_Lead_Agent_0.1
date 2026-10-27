@@ -14,7 +14,7 @@ jobs:
   backup:
     runs-on: ubuntu-latest
     steps:
-      - name: Create timestamped PostgreSQL backup
+      - name: Validate database secret
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
@@ -23,12 +23,23 @@ jobs:
             echo "Missing repository secret SUPABASE_DB_URL."
             exit 1
           fi
-          mkdir -p backups
+          case "$SUPABASE_DB_URL" in
+            postgres://*|postgresql://*) ;;
+            *) echo "SUPABASE_DB_URL must be a PostgreSQL connection URI."; exit 1 ;;
+          esac
+
+      - name: Create and verify compressed PostgreSQL backup
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
           FILE="supabase-backup-$(date -u +'%Y-%m-%d-%H%M%S').sql.gz"
-          docker run --rm -e SUPABASE_DB_URL="$SUPABASE_DB_URL" postgres:17             sh -lc 'pg_dump --no-owner --no-privileges "$SUPABASE_DB_URL" | gzip -c' > "backups/$FILE"
-          test -s "backups/$FILE"
-          echo "BACKUP_FILE=backups/$FILE" >> "$GITHUB_ENV"
-          echo "Backup file created."
+          docker run --rm -e SUPABASE_DB_URL="$SUPABASE_DB_URL" postgres:17 \
+            bash -o pipefail -c 'pg_dump --no-owner --no-privileges "$SUPABASE_DB_URL" | gzip -c' > "$FILE"
+          test -s "$FILE"
+          gzip -t "$FILE"
+          echo "BACKUP_FILE=$FILE" >> "$GITHUB_ENV"
+          echo "Backup file created and gzip integrity verified."
 
       - name: Keep backup artifact for 30 days
         uses: actions/upload-artifact@v4
