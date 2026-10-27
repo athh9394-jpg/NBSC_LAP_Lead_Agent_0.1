@@ -92,22 +92,8 @@ public class MainActivity extends Activity {
     }
 
     private String safeFileName(String contentDisposition, String url) {
-        String name = "nbsc-lap-backup.json";
-        if (contentDisposition != null) {
-            java.util.regex.Matcher matcher = java.util.regex.Pattern
-                    .compile("filename\*=UTF-8''([^;]+)|filename=\"?([^\";]+)")
-                    .matcher(contentDisposition);
-            if (matcher.find()) {
-                String candidate = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
-                if (candidate != null && !candidate.trim().isEmpty()) name = Uri.decode(candidate.trim());
-            }
-        } else if (url != null) {
-            String path = Uri.parse(url).getLastPathSegment();
-            if (path != null && path.contains(".")) name = path;
-        }
-        name = name.replaceAll("[^A-Za-z0-9._-]", "_");
-        if (!name.toLowerCase().endsWith(".json")) name += ".json";
-        return name;
+        // Backups are JSON; use a predictable safe filename on Android.
+        return "nbsc-lap-backup.json";
     }
 
     private void installBlobDownloadHandler(WebView view) {
