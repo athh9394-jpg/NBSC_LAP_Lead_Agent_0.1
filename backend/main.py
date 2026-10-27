@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from twilio.request_validator import RequestValidator
@@ -373,7 +373,7 @@ def get_lead(
 
 
 @app.post("/webhook/whatsapp")
-async def whatsapp_webhook(request: Request) -> str:
+async def whatsapp_webhook(request: Request) -> Response:
     form = await request.form()
 
     # Validate Twilio's signature when a Twilio auth token is configured.
@@ -411,4 +411,4 @@ async def whatsapp_webhook(request: Request) -> str:
             "documents WhatsApp par na bhejein."
         )
 
-    return str(response)
+    return Response(content=str(response), media_type="application/xml")
