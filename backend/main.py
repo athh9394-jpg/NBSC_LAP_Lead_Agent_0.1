@@ -569,3 +569,43 @@ async def whatsapp_webhook(request: Request) -> Response:
         content=str(response),
         media_type="application/xml",
     )
+
+@app.get("/admin/backup.json")
+def download_admin_backup(
+    user: dict = Depends(verify_firebase_token),
+) -> Response:
+    """Download a private JSON backup; only the configured Firebase admin may export data."""
+    if not ADMIN_UID:
+        raise HTTPException(status_code=503, detail="ADMIN_UID is not configured on the server")
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    with closing(connect_db()) as connection:
+        leads = [
+            dict(row)
+            for row in connection.execute(
+                "SELECT * FROM leads ORDER BY created_at ASC"
+            ).fetchall()
+        ]
+        followups = [
+            dict(row)
+            for row in connection.execute(
+                "SELECT * FROM lead_followups ORDER BY created_at ASC"
+            ).fetchall()
+        ]
+
+    backup = {
+        "app": APP_NAME,
+        "format_version": 1,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "counts": {"leads": len(leads), "followups": len(followups)},
+        "leads": leads,
+        "followups": followups,
+    }
+    filename = "nbsc-lap-backup-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + ".json"
+    return Response(
+        content=json.dumps(backup, ensure_ascii=False, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"},
+    )
+
