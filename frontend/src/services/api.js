@@ -16,13 +16,13 @@ async function request(path, options = {}) {
   });
 
   if (!res.ok) {
-    let message = res.statusText;
+    const raw = await res.text();
+    let message = raw || res.statusText;
     try {
-      const body = await res.json();
+      const body = JSON.parse(raw);
       message = body.detail || JSON.stringify(body);
     } catch {
-      const bodyText = await res.text();
-      if (bodyText) message = bodyText;
+      // Keep the plain-text error message when the API does not return JSON.
     }
     throw new Error(`API ${res.status}: ${message}`);
   }
