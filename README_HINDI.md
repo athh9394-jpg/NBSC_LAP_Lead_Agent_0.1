@@ -46,3 +46,10 @@ Aapko project files upload karke browser-based coding environment mein run karna
 - Keep `ADMIN_UID` set to the actual admin user's Firebase Authentication UID. Keep Firebase Admin credentials configured on the backend; never put service-account JSON in frontend files or GitHub.
 - The export contains customer personal data. Store the downloaded file privately and do not upload it to a public GitHub repository or share it in chat.
 - This is a **manual export**, not an automatic backup. It does not by itself make Render's SQLite database persistent. Until persistent storage and a tested restore process are configured, do not treat the service as safe for critical customer records.
+
+### Dashboard se backup download karna
+1. Render ke frontend service `nbsc-lap-frontend-02` → Environment mein Firebase web app ke ye **public client config** values set karein: `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`. Optional: `VITE_FIREBASE_MESSAGING_SENDER_ID`.
+2. Firebase Console → Authentication → Sign-in method mein Email/Password enable hona chahiye. Apne authorized admin user se hi sign in karein.
+3. Render backend environment mein `ADMIN_UID` usi Firebase admin user ka exact UID hona chahiye; backend Firebase Admin credentials bhi configured hone chahiye.
+4. Frontend environment change ke baad redeploy hone dein. Dashboard ke Admin Data Backup panel se sign in karke Download backup JSON dabayein.
+5. Agar `Admin access required` aaye, to UID match nahi hai; agar Firebase Admin not configured aaye, backend credentials configure karne honge. Web config values public client settings hain; Firebase service-account private key nahi.
