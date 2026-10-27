@@ -1,0 +1,39 @@
+name: Daily Supabase Database Backup
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Runs daily at 00:30 UTC (06:00 India Standard Time).
+    - cron: "30 0 * * *"
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create timestamped PostgreSQL backup
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "Missing repository secret SUPABASE_DB_URL."
+            exit 1
+          fi
+          mkdir -p backups
+          FILE="supabase-backup-$(date -u +'%Y-%m-%d-%H%M%S').sql.gz"
+          docker run --rm -e SUPABASE_DB_URL="$SUPABASE_DB_URL" postgres:17             sh -lc 'pg_dump --no-owner --no-privileges "$SUPABASE_DB_URL" | gzip -c' > "backups/$FILE"
+          test -s "backups/$FILE"
+          echo "BACKUP_FILE=backups/$FILE" >> "$GITHUB_ENV"
+          echo "Backup file created."
+
+      - name: Keep backup artifact for 30 days
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-daily-backup-${{ github.run_id }}
+          path: ${{ env.BACKUP_FILE }}
+          if-no-files-found: error
+          retention-days: 30
