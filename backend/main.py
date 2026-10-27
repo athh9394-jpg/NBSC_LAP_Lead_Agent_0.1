@@ -76,20 +76,37 @@ def init_db():
 def startup():
     init_db()
 ADMIN_UID = os.getenv("ADMIN_UID", "")
- 
-    def verify_firebase_token(authorization: Optional[str] = Header(default=None)): if not authorization or not authorization.startswith("Bearer "): raise HTTPException(status_code=401, detail="Firebase login required")
-token = authorization.split(" ", 1)[1]
+
+def verify_firebase_token(authorization: Optional[str] = Header(default=None)):
+if not authorization:
+raise HTTPException(status_code=401, detail="Firebase login required")
+
+scheme, separator, credentials = authorization.partition(" ")
+if (
+    scheme != "Bearer"
+    or separator != " "
+    or not credentials
+    or credentials != credentials.strip()
+    or " " in credentials
+    or "\t" in credentials
+):
+    raise HTTPException(status_code=401, detail="Firebase login required")
 
 try:
-    decoded = auth.verify_id_token(token)
+    decoded = auth.verify_id_token(credentials)
     return {
         "uid": decoded["uid"],
         "is_admin": decoded["uid"] == ADMIN_UID
     }
 except Exception:
     raise HTTPException(status_code=401, detail="Invalid Firebase token")
-def require_token(authorization: Optional[str] = Header(default=None)): if not API_TOKEN: raise HTTPException( status_code=503, detail="Server setup incomplete: APP_API_TOKEN is not configured" )
-expected = f"Bearer {API_TOKEN}"
+
+def require_token(authorization: Optional[str] = Header(default=None)):
+if not API_TOKEN:
+raise HTTPException(
+status_code=503,
+detail="Server setup incomplete: APP_API_TOKEN is not configured"
+)
 
 if not authorization:
     raise HTTPException(
@@ -97,12 +114,16 @@ if not authorization:
         detail="Authorization header is missing"
     )
 
-if authorization.strip() != expected:
+scheme, separator, credentials = authorization.partition(" ")
+if (
+    scheme != "Bearer"
+    or separator != " "
+    or credentials != API_TOKEN
+):
     raise HTTPException(
         status_code=401,
         detail="Authentication required"
     )
-
 def normalize_phone(value: str) -> str:
     digits = re.sub(r"\D", "", value or "")
     if digits.startswith("0"):
