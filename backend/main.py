@@ -106,6 +106,15 @@ def init_db() -> None:
             connection.execute("ALTER TABLE leads ADD COLUMN monthly_income REAL DEFAULT 0")
         if "customer_type" not in columns:
             connection.execute("ALTER TABLE leads ADD COLUMN customer_type TEXT DEFAULT 'business'")
+        connection.execute("""CREATE TABLE IF NOT EXISTS lead_followups (
+            id TEXT PRIMARY KEY,
+            lead_id TEXT NOT NULL,
+            channel TEXT NOT NULL DEFAULT 'call',
+            outcome TEXT NOT NULL DEFAULT 'attempted',
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (lead_id) REFERENCES leads(id)
+        )""")
         connection.commit()
 
 
@@ -418,6 +427,73 @@ def list_leads(
         "count": len(rows),
         "leads": [dict(row) for row in rows],
     }
+
+
+class FollowUpCreateRequest(BaseModel):
+    channel: str = Field(default="call", max_length=20)
+    outcome: str = Field(default="attempted", max_length=40)
+    notes: str = Field(default="", max_length=2000)
+
+
+class LeadStatusUpdate(BaseModel):
+    status: str = Field(..., min_length=1, max_length=50)
+
+
+@app.get("/lead/{lead_id}/followups")
+def list_followups(lead_id: str, _authorized: bool = Depends(require_token)) -> dict:
+    with closing(connect_db()) as connection:
+        exists = connection.execute("SELECT id FROM leads WHERE id = ?", (lead_id,)).fetchone()
+        if not exists:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        rows = connection.execute(
+            "SELECT * FROM lead_followups WHERE lead_id = ? ORDER BY created_at DESC", (lead_id,)
+        ).fetchall()
+    return {"success": True, "count": len(rows), "followups": [dict(row) for row in rows]}
+
+
+@app.post("/lead/{lead_id}/followups")
+def add_followup(lead_id: str, payload: FollowUpCreateRequest, _authorized: bool = Depends(require_token)) -> dict:
+    channel = payload.channel.strip().lower()
+    outcome = payload.outcome.strip().lower()
+    if channel not in {"call", "whatsapp", "in_person", "other"}:
+        raise HTTPException(status_code=422, detail="Invalid follow-up channel")
+    if outcome not in {"attempted", "connected", "no_answer", "callback", "interested", "not_interested", "converted"}:
+        raise HTTPException(status_code=422, detail="Invalid follow-up outcome")
+    now = datetime.now(timezone.utc).isoformat()
+    followup_id = str(uuid.uuid4())
+    with closing(connect_db()) as connection:
+        exists = connection.execute("SELECT id FROM leads WHERE id = ?", (lead_id,)).fetchone()
+        if not exists:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        connection.execute(
+            "INSERT INTO lead_followups (id, lead_id, channel, outcome, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (followup_id, lead_id, channel, outcome, payload.notes.strip(), now),
+        )
+        if outcome == "converted":
+            connection.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", ("converted", now, lead_id))
+        elif outcome == "not_interested":
+            connection.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", ("not_interested", now, lead_id))
+        else:
+            connection.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", ("follow_up", now, lead_id))
+        connection.commit()
+        row = connection.execute("SELECT * FROM lead_followups WHERE id = ?", (followup_id,)).fetchone()
+    return {"success": True, "followup": dict(row)}
+
+
+@app.patch("/lead/{lead_id}/status")
+def update_lead_status(lead_id: str, payload: LeadStatusUpdate, _authorized: bool = Depends(require_token)) -> dict:
+    allowed = {"new", "follow_up", "converted", "not_interested", "not_converted"}
+    status = payload.status.strip().lower()
+    if status not in allowed:
+        raise HTTPException(status_code=422, detail="Invalid lead status")
+    now = datetime.now(timezone.utc).isoformat()
+    with closing(connect_db()) as connection:
+        cursor = connection.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", (status, now, lead_id))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        connection.commit()
+        row = connection.execute("SELECT * FROM leads WHERE id = ?", (lead_id,)).fetchone()
+    return {"success": True, "lead": dict(row)}
 
 
 @app.get("/lead/{lead_id}")
