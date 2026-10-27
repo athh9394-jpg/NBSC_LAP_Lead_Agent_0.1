@@ -77,10 +77,8 @@ def startup():
     init_db()
 ADMIN_UID = os.getenv("ADMIN_UID", "")
 
-def verify_firebase_token(authorization: Optional[str] = Header(default=None)):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Firebase login required")
 
+    
     token = authorization.split(" ", 1)[1]
 
     try:
@@ -88,32 +86,26 @@ def verify_firebase_token(authorization: Optional[str] = Header(default=None)):
         return {
             "uid": decoded["uid"],
             "is_admin": decoded["uid"] == ADMIN_UID
-        }
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid Firebase token")
-def require_token(authorization: Optional[str] = Header(default=None)):
-    # Private/demo starter: set APP_API_TOKEN before using any lead endpoints.
+ def require_token(authorization: Optional[str] = Header(default=None)):
     if not API_TOKEN:
-        raise HTTPException(status_code=503, detail="Server setup incomplete: APP_API_TOKEN is not configured")
+        raise HTTPException(
+            status_code=503,
+            detail="Server setup incomplete: APP_API_TOKEN is not configured"
+        )
+
     expected = f"Bearer {API_TOKEN}"
 
-if not API_TOKEN:
-    raise HTTPException(
-        status_code=503,
-        detail="APP_API_TOKEN is missing on server"
-    )
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Authorization header is missing"
+        )
 
-if not authorization:
-    raise HTTPException(
-        status_code=401,
-        detail="Authorization header is missing"
-    )
-
-if authorization.strip() != expected.strip():
-    raise HTTPException(
-        status_code=401,
-        detail="Authorization token does not match"
-    )
+    if authorization.strip() != expected:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required"
+        )
 
 def normalize_phone(value: str) -> str:
     digits = re.sub(r"\D", "", value or "")
