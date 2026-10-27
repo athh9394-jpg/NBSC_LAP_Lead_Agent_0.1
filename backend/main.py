@@ -96,8 +96,24 @@ def require_token(authorization: Optional[str] = Header(default=None)):
     if not API_TOKEN:
         raise HTTPException(status_code=503, detail="Server setup incomplete: APP_API_TOKEN is not configured")
     expected = f"Bearer {API_TOKEN}"
-    if authorization != expected:
-        raise HTTPException(status_code=401, detail="Authentication required")
+
+if not API_TOKEN:
+    raise HTTPException(
+        status_code=503,
+        detail="APP_API_TOKEN is missing on server"
+    )
+
+if not authorization:
+    raise HTTPException(
+        status_code=401,
+        detail="Authorization header is missing"
+    )
+
+if authorization.strip() != expected.strip():
+    raise HTTPException(
+        status_code=401,
+        detail="Authorization token does not match"
+    )
 
 def normalize_phone(value: str) -> str:
     digits = re.sub(r"\D", "", value or "")
