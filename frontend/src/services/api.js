@@ -7,10 +7,13 @@ const API_BASE = (
 
 const TOKEN = import.meta.env.VITE_API_TOKEN || "";
 
-async function request(path) {
+async function request(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
     headers: {
-      Authorization: `Bearer ${TOKEN}`
+      Authorization: `Bearer ${TOKEN}`,
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers || {})
     }
   });
 
