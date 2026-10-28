@@ -499,9 +499,10 @@ class LeadStatusUpdate(BaseModel):
 
 
 @app.get("/lead/{lead_id}/followups")
-def list_followups(lead_id: str, _authorized: bool = Depends(require_token)) -> dict:
+def list_followups(lead_id: str, user: dict = Depends(require_token)) -> dict:
     with closing(connect_db()) as connection:
-        exists = connection.execute("SELECT id FROM leads WHERE id = ?", (lead_id,)).fetchone()
+        exists = connection.execute("SELECT id FROM leads WHERE id = ?" + ("" if user["is_admin"] else " AND owner_uid = ?"),
+            (lead_id,) if user["is_admin"] else (lead_id, user["uid"])).fetchone()
         if not exists:
             raise HTTPException(status_code=404, detail="Lead not found")
         rows = connection.execute(
@@ -518,21 +519,3 @@ def add_followup(lead_id: str, payload: FollowUpCreateRequest, _authorized: bool
         raise HTTPException(status_code=422, detail="Invalid follow-up channel")
     if outcome not in {"attempted", "connected", "no_answer", "callback", "interested", "not_interested", "converted"}:
         raise HTTPException(status_code=422, detail="Invalid follow-up outcome")
-    now = datetime.now(timezone.utc).isoformat()
-    followup_id = str(uuid.uuid4())
-    with closing(connect_db()) as connection:
-        exists = connection.execute("SELECT id FROM leads WHERE id = ?", (lead_id,)).fetchone()
-        if not exists:
-            raise HTTPException(status_code=404, detail="Lead not found")
-        connection.execute(
-            "INSERT INTO lead_followups (id, lead_id, channel, outcome, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (followup_id, lead_id, channel, outcome, payload.notes.strip(), now),
-        )
-        if outcome == "converted":
-            connection.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", ("converted", now, lead_id))
-        elif outcome == "not_interested":
-            connection.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", ("not_interested", now, lead_id))
-        else:
-            connection.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", ("follow_up", now, lead_id))
-        connection.commit()
-        row = connection.execute("SELECT * FROM lead_followups WHERE id = ?", (followup_id,)).fetchone()
