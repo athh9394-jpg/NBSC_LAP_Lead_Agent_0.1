@@ -1,7 +1,175 @@
-import React,{useState} from "react";
+import React, { useState } from "react";
 import App from "./App.jsx";
 import AgentDashboard from "./AgentDashboard.jsx";
 import "./auth.css";
-const URL=(import.meta.env.VITE_SUPABASE_URL||"https://vmnpgieduiolzkrbuoei.supabase.co").replace(/\/$/,""),KEY=import.meta.env.VITE_SUPABASE_ANON_KEY||"sb_publishable_ty9eO2VEiIqBMC_naMy57A_EDOHgrMS";
-async function call(path,body,token){const r=await fetch(URL+"/auth/v1/"+path,{method:"POST",headers:{apikey:KEY,"Content-Type":"application/json",...(token?{Authorization:"Bearer "+token}:{})},body:JSON.stringify(body)});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.msg||d.message||d.error_description||"Authentication failed");return d}
-export default function AuthGate(){const[mode,M]=useState("login"),[phone,P]=useState(""),[password,W]=useState(""),[otp,O]=useState(""),[np,N]=useState(""),[msg,S]=useState(""),[busy,B]=useState(false),[session,T]=useState(()=>localStorage.getItem("nbsc_access_token")||"");function logout(){localStorage.removeItem("nbsc_access_token");localStorage.removeItem("nbsc_refresh_token");T("");M("login");S("");}function isAdminToken(token){try{const part=token.split(".")[1].replace(/-/g,"+").replace(/_/g,"/");const payload=JSON.parse(atob(part));return payload.sub==="920128ab-041c-4955-8e4a-b3574da4e733"}catch{return false}}if(session)return isAdminToken(session)?<App onLogout={logout}/>:<AgentDashboard onLogout={logout}/>;const num=()=>{let d=phone.replace(/\D/g,"");return d.length===10?"+91"+d:phone.trim().startsWith("+")?phone.trim():"+"+d};async function submit(e){e.preventDefault();B(true);S("");try{if(!URL||!KEY)throw Error("Render frontend environment mein VITE_SUPABASE_URL aur VITE_SUPABASE_ANON_KEY set nahi hain.");let p=num(),d;if(mode==="login"){const identity=phone.trim();d=await call("token?grant_type=password",identity.includes("@")?{email:identity,password}:{phone:p,password});localStorage.setItem("nbsc_access_token",d.access_token);localStorage.setItem("nbsc_refresh_token",d.refresh_token||"");T(d.access_token);return}if(mode==="register"){d=await call("signup",{phone:p,password});if(d.access_token){localStorage.setItem("nbsc_access_token",d.access_token);T(d.access_token);return}M("verify-register");S("Registration request ho gayi. Supabase SMS provider configured hai to aapke mobile par OTP aayega. Code enter karein.");return}if(mode==="forgot"){await call("otp",{phone:p,create_user:false});M("verify-reset");S("Agar number registered hai to OTP request bheja gaya.");return}d=await call("verify",{phone:p,token:otp,type:"sms"});if(mode==="verify-register"){if(!d.access_token)throw Error("OTP verify hua, lekin session nahi mila. Login karein.");localStorage.setItem("nbsc_access_token",d.access_token);localStorage.setItem("nbsc_refresh_token",d.refresh_token||"");T(d.access_token);return}if(!d.access_token)throw Error("Reset session nahi mila. OTP dobara mangayein.");let r=await fetch(URL+"/auth/v1/user",{method:"PUT",headers:{apikey:KEY,"Content-Type":"application/json",Authorization:"Bearer "+d.access_token},body:JSON.stringify({password:np})});if(!r.ok)throw Error("Password reset fail hua; Supabase phone recovery setting check karein.");M("login");O("");N("");S("Password update ho gaya. Login karein.")}catch(e){S(e.message||"Request fail hua.")}finally{B(false)}}const verify=mode.startsWith("verify-");return <main className="auth-shell"><form className="auth-card" onSubmit={submit}><div className="auth-mark">N</div><h1>NBSC LAP</h1><p className="auth-sub">Lead Agent · Secure login</p>{!verify&&<label>{mode==="login"?"Admin email or agent mobile number":"Agent mobile number"}<input value={phone} onChange={e=>P(e.target.value)} type="text" inputMode={mode==="login"?"text":"tel"} autoComplete={mode==="login"?"username":"tel"} placeholder={mode==="login"?"Admin email or agent mobile number":"+91 10 digit mobile number"} required /></label>}{mode==="login"&&<label>Password<input type="password" value={password} onChange={e=>W(e.target.value)} autoComplete="current-password" required/></label>}{mode==="register"&&<label>Create password<input type="password" value={password} onChange={e=>W(e.target.value)} autoComplete="new-password" minLength="8" required/></label>}{verify&&<label>SMS OTP<input value={otp} onChange={e=>O(e.target.value)} inputMode="numeric" autoComplete="one-time-code" minLength="6" maxLength="8" required/></label>}{mode==="verify-reset"&&<label>New password<input type="password" value={np} onChange={e=>N(e.target.value)} autoComplete="new-password" minLength="8" required/></label>}<button className="auth-submit" disabled={busy}>{busy?"Please wait…":verify?"Verify OTP":mode==="login"?"Login":mode==="register"?"Create account & send OTP":"Send reset OTP"}</button><div className="auth-links">{!verify&&<>{mode!=="login"&&<button type="button" onClick={()=>{M("login");S("")}}>Login</button>}{mode!=="register"&&<button type="button" onClick={()=>{M("register");S("")}}>Register</button>}{mode!=="forgot"&&<button type="button" onClick={()=>{M("forgot");S("")}}>Forgot password?</button>}</>}</div>{msg&&<p className="auth-message" role="status">{msg}</p>}<small className="auth-note">Admin login uses the existing email and password. Agent registration and recovery require Supabase Phone Auth and a configured SMS provider.</small></form></main>}
+
+const URL = (import.meta.env.VITE_SUPABASE_URL || "https://vmnpgieduiolzkrbuoei.supabase.co").replace(/\/$/, "");
+const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_ty9eO2VEiIqBMC_naMy57A_EDOHgrMS";
+
+async function call(path, body, token) {
+  const response = await fetch(URL + "/auth/v1/" + path, {
+    method: "POST",
+    headers: { apikey: KEY, "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) },
+    body: JSON.stringify(body)
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.msg || data.message || data.error_description || data.error || "Authentication failed");
+  return data;
+}
+
+export default function AuthGate() {
+  const [mode, setMode] = useState("login");
+  const [identity, setIdentity] = useState("");
+  const [password, setPassword] = useState("");
+  const [otp, setOtp] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [session, setSession] = useState(() => localStorage.getItem("nbsc_access_token") || "");
+
+  const isEmail = value => value.trim().includes("@");
+  const normalizedIdentity = () => {
+    const value = identity.trim();
+    if (isEmail(value)) return value.toLowerCase();
+    const digits = value.replace(/\D/g, "");
+    if (digits.length === 10) return "+91" + digits;
+    if (value.startsWith("+")) return "+" + digits;
+    return "+" + digits;
+  };
+  function logout() {
+    localStorage.removeItem("nbsc_access_token");
+    localStorage.removeItem("nbsc_refresh_token");
+    setSession("");
+    setMode("login");
+    setMessage("");
+    setPassword("");
+  }
+  function isAdminToken(token) {
+    try {
+      const part = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+      const payload = JSON.parse(atob(part));
+      return payload.sub === "920128ab-041c-4955-8e4a-b3574da4e733";
+    } catch { return false; }
+  }
+  function saveSession(data) {
+    if (!data.access_token) throw new Error("Verification ho gayi, lekin login session nahi mila. Ab Login karein.");
+    localStorage.setItem("nbsc_access_token", data.access_token);
+    localStorage.setItem("nbsc_refresh_token", data.refresh_token || "");
+    setSession(data.access_token);
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      if (!URL || !KEY) throw new Error("Supabase configuration missing hai.");
+      const value = normalizedIdentity();
+      const email = isEmail(identity);
+      let data;
+
+      if (mode === "login") {
+        data = await call("token?grant_type=password", email ? { email: value, password } : { phone: value, password });
+        saveSession(data);
+        return;
+      }
+
+      if (mode === "register") {
+        if (email) {
+          data = await call("signup", { email: value, password });
+        } else {
+          data = await call("signup", { phone: value, password });
+        }
+        if (data.access_token) {
+          saveSession(data);
+          return;
+        }
+        setMode("verify-register");
+        setMessage(email
+          ? "Registration request bheji gayi. Email par Supabase ka confirmation code check karein, spam folder bhi dekhein."
+          : "Registration request bheji gayi. SMS provider configured aur number eligible hai to SMS OTP aayega.");
+        return;
+      }
+
+      if (mode === "forgot") {
+        await call("otp", email ? { email: value, create_user: false } : { phone: value, create_user: false });
+        setMode("verify-reset");
+        setMessage(email
+          ? "Agar email registered hai, to email par recovery code bheja gaya. Inbox aur spam check karein."
+          : "Agar mobile registered hai, to SMS recovery OTP bheja gaya.");
+        return;
+      }
+
+      const emailFlow = isEmail(identity);
+      const verifyType = mode === "verify-register" ? (emailFlow ? "email" : "sms") : "recovery";
+      data = await call("verify", emailFlow
+        ? { email: normalizedIdentity(), token: otp.trim(), type: verifyType }
+        : { phone: normalizedIdentity(), token: otp.trim(), type: verifyType });
+
+      if (mode === "verify-register") {
+        saveSession(data);
+        return;
+      }
+      if (!data.access_token) throw new Error("Recovery code verify hua, lekin reset session nahi mila. Naya recovery code mangayein.");
+      const response = await fetch(URL + "/auth/v1/user", {
+        method: "PUT",
+        headers: { apikey: KEY, "Content-Type": "application/json", Authorization: "Bearer " + data.access_token },
+        body: JSON.stringify({ password: newPassword })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.msg || result.message || "Password reset fail hua.");
+      setMode("login");
+      setOtp("");
+      setNewPassword("");
+      setMessage("Password update ho gaya. Ab naye password se Login karein.");
+    } catch (error) {
+      setMessage(error.message || "Request fail hui. Supabase Auth settings check karein.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (session) return isAdminToken(session) ? <App onLogout={logout} /> : <AgentDashboard onLogout={logout} />;
+  const verify = mode.startsWith("verify-");
+  const emailFlow = isEmail(identity);
+  const identifierLabel = mode === "login" ? "Email ya agent mobile number" : "Agent email ya mobile number";
+  const identifierPlaceholder = mode === "login" ? "name@example.com ya 10 digit mobile" : "Agent email ya +91 mobile number";
+
+  return <main className="auth-shell">
+    <form className="auth-card" onSubmit={submit}>
+      <div className="auth-mark">N</div>
+      <h1>NBSC LAP</h1>
+      <p className="auth-sub">Lead Agent · Secure login</p>
+      {!verify && <label>{identifierLabel}
+        <input value={identity} onChange={event => setIdentity(event.target.value)} type="text"
+          inputMode="email" autoComplete={mode === "login" ? "username" : "email"}
+          placeholder={identifierPlaceholder} required />
+      </label>}
+      {(mode === "login" || mode === "register") && <label>{mode === "login" ? "Password" : "Create password"}
+        <input type="password" value={password} onChange={event => setPassword(event.target.value)}
+          autoComplete={mode === "login" ? "current-password" : "new-password"} minLength="8" required />
+      </label>}
+      {verify && <label>{emailFlow ? "Email confirmation / recovery code" : "SMS OTP"}
+        <input value={otp} onChange={event => setOtp(event.target.value)} inputMode="numeric"
+          autoComplete="one-time-code" minLength="6" maxLength="8" required />
+      </label>}
+      {mode === "verify-reset" && <label>New password
+        <input type="password" value={newPassword} onChange={event => setNewPassword(event.target.value)}
+          autoComplete="new-password" minLength="8" required />
+      </label>}
+      <button className="auth-submit" disabled={busy}>
+        {busy ? "Please wait…" : verify ? "Verify code" : mode === "login" ? "Login" : mode === "register" ? "Create account & send code" : "Send password reset code"}
+      </button>
+      <div className="auth-links">
+        {!verify && <>
+          {mode !== "login" && <button type="button" onClick={() => { setMode("login"); setMessage(""); }}>Login</button>}
+          {mode !== "register" && <button type="button" onClick={() => { setMode("register"); setMessage(""); }}>Register</button>}
+          {mode !== "forgot" && <button type="button" onClick={() => { setMode("forgot"); setMessage(""); }}>Forgot password?</button>}
+        </>}
+        {verify && <button type="button" onClick={() => { setMode("login"); setOtp(""); setMessage(""); }}>Back to Login</button>}
+      </div>
+      {message && <p className="auth-message" role="status">{message}</p>}
+      <small className="auth-note">Admin apne existing email aur password se login karein. Agents email + password ya mobile + password se register/login kar sakte hain. Email confirmation Supabase Email Auth settings par depend karti hai; SMS OTP ke liye Twilio setup zaroori hai.</small>
+    </form>
+  </main>;
+}
