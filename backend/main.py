@@ -32,6 +32,7 @@ load_dotenv()
 APP_NAME = "NBSC LAP Lead Agent"
 API_TOKEN = os.getenv("APP_API_TOKEN", "").strip()
 ADMIN_UID = os.getenv("ADMIN_UID", "").strip()
+SUPABASE_ADMIN_UID = os.getenv("SUPABASE_ADMIN_UID", "920128ab-041c-4955-8e4a-b3574da4e733").strip()
 DB_PATH = os.getenv("DB_PATH", "./leads.db")
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 USE_POSTGRES = bool(DATABASE_URL)
@@ -152,6 +153,14 @@ def init_db() -> None:
             connection.execute("ALTER TABLE leads ADD COLUMN monthly_income REAL DEFAULT 0")
         if "customer_type" not in columns:
             connection.execute("ALTER TABLE leads ADD COLUMN customer_type TEXT DEFAULT 'business'")
+        if "owner_uid" not in columns:
+            connection.execute("ALTER TABLE leads ADD COLUMN owner_uid TEXT NULL")
+        connection.execute("""CREATE TABLE IF NOT EXISTS agent_accounts (
+            uid TEXT PRIMARY KEY,
+            is_blocked INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        )""")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_leads_owner_created ON leads (owner_uid, created_at)")
         connection.execute("""CREATE TABLE IF NOT EXISTS lead_followups (
             id TEXT PRIMARY KEY,
             lead_id TEXT NOT NULL,
@@ -230,7 +239,15 @@ def require_token(
             user = json.loads(response.read().decode("utf-8"))
         if not user.get("id"):
             raise ValueError("Missing user id")
-        return {"uid": user["id"], "phone": user.get("phone", "")}
+        uid = user["id"]
+        is_admin = bool(SUPABASE_ADMIN_UID and uid == SUPABASE_ADMIN_UID)
+        with closing(connect_db()) as connection:
+            account = connection.execute("SELECT is_blocked FROM agent_accounts WHERE uid = ?", (uid,)).fetchone()
+        if account and bool(account["is_blocked"]) and not is_admin:
+            raise HTTPException(status_code=403, detail="Your agent account is blocked. Contact admin.")
+        return {"uid": uid, "phone": user.get("phone", ""), "is_admin": is_admin}
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=401, detail="Session invalid. Please sign in again")
 
@@ -331,7 +348,7 @@ def health() -> dict:
 @app.post("/lead")
 def create_lead(
     payload: LeadCreateRequest,
-    _authorized: bool = Depends(require_token),
+    user: dict = Depends(require_token),
 ) -> dict:
     data = payload.model_dump()
 
@@ -372,8 +389,8 @@ def create_lead(
 
     with closing(connect_db()) as connection:
         existing = connection.execute(
-            "SELECT id FROM leads WHERE phone = ?",
-            (data["phone"],),
+            "SELECT id FROM leads WHERE phone = ? AND owner_uid = ?",
+            (data["phone"], user["uid"]),
         ).fetchone()
 
         if existing:
@@ -412,9 +429,9 @@ def create_lead(
                 """
                 INSERT INTO leads (
                     id, name, phone, city, product, source, budget,
-                    monthly_income, customer_type, consent_status, score, status, notes, created_at, updated_at
+                    monthly_income, customer_type, consent_status, score, status, notes, created_at, updated_at, owner_uid
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     lead_id,
@@ -432,6 +449,7 @@ def create_lead(
                     data["notes"],
                     now,
                     now,
+                    user["uid"],
                 ),
             )
             created = True
@@ -453,15 +471,15 @@ def create_lead(
 @app.get("/leads")
 def list_leads(
     limit: int = 100,
-    _authorized: bool = Depends(require_token),
+    user: dict = Depends(require_token),
 ) -> dict:
     limit = max(1, min(limit, 500))
 
     with closing(connect_db()) as connection:
-        rows = connection.execute(
-            "SELECT * FROM leads ORDER BY created_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+        if user["is_admin"]:
+            rows = connection.execute("SELECT * FROM leads ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+        else:
+            rows = connection.execute("SELECT * FROM leads WHERE owner_uid = ? ORDER BY created_at DESC LIMIT ?", (user["uid"], limit)).fetchall()
 
     return {
         "success": True,
@@ -481,9 +499,10 @@ class LeadStatusUpdate(BaseModel):
 
 
 @app.get("/lead/{lead_id}/followups")
-def list_followups(lead_id: str, _authorized: bool = Depends(require_token)) -> dict:
+def list_followups(lead_id: str, user: dict = Depends(require_token)) -> dict:
     with closing(connect_db()) as connection:
-        exists = connection.execute("SELECT id FROM leads WHERE id = ?", (lead_id,)).fetchone()
+        exists = connection.execute("SELECT id FROM leads WHERE id = ?" + ("" if user["is_admin"] else " AND owner_uid = ?"),
+            (lead_id,) if user["is_admin"] else (lead_id, user["uid"])).fetchone()
         if not exists:
             raise HTTPException(status_code=404, detail="Lead not found")
         rows = connection.execute(
@@ -493,7 +512,7 @@ def list_followups(lead_id: str, _authorized: bool = Depends(require_token)) -> 
 
 
 @app.post("/lead/{lead_id}/followups")
-def add_followup(lead_id: str, payload: FollowUpCreateRequest, _authorized: bool = Depends(require_token)) -> dict:
+def add_followup(lead_id: str, payload: FollowUpCreateRequest, user: dict = Depends(require_token)) -> dict:
     channel = payload.channel.strip().lower()
     outcome = payload.outcome.strip().lower()
     if channel not in {"call", "whatsapp", "in_person", "other"}:
@@ -503,33 +522,29 @@ def add_followup(lead_id: str, payload: FollowUpCreateRequest, _authorized: bool
     now = datetime.now(timezone.utc).isoformat()
     followup_id = str(uuid.uuid4())
     with closing(connect_db()) as connection:
-        exists = connection.execute("SELECT id FROM leads WHERE id = ?", (lead_id,)).fetchone()
+        exists = connection.execute("SELECT id FROM leads WHERE id = ?" + ("" if user["is_admin"] else " AND owner_uid = ?"), (lead_id,) if user["is_admin"] else (lead_id, user["uid"])).fetchone()
         if not exists:
             raise HTTPException(status_code=404, detail="Lead not found")
         connection.execute(
             "INSERT INTO lead_followups (id, lead_id, channel, outcome, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             (followup_id, lead_id, channel, outcome, payload.notes.strip(), now),
         )
-        if outcome == "converted":
-            connection.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", ("converted", now, lead_id))
-        elif outcome == "not_interested":
-            connection.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", ("not_interested", now, lead_id))
-        else:
-            connection.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", ("follow_up", now, lead_id))
+        new_status = "converted" if outcome == "converted" else ("not_interested" if outcome == "not_interested" else "follow_up")
+        connection.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", (new_status, now, lead_id))
         connection.commit()
         row = connection.execute("SELECT * FROM lead_followups WHERE id = ?", (followup_id,)).fetchone()
     return {"success": True, "followup": dict(row)}
 
 
 @app.patch("/lead/{lead_id}/status")
-def update_lead_status(lead_id: str, payload: LeadStatusUpdate, _authorized: bool = Depends(require_token)) -> dict:
+def update_lead_status(lead_id: str, payload: LeadStatusUpdate, user: dict = Depends(require_token)) -> dict:
     allowed = {"new", "follow_up", "converted", "not_interested", "not_converted"}
     status = payload.status.strip().lower()
     if status not in allowed:
         raise HTTPException(status_code=422, detail="Invalid lead status")
     now = datetime.now(timezone.utc).isoformat()
     with closing(connect_db()) as connection:
-        cursor = connection.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", (status, now, lead_id))
+        cursor = connection.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?" + ("" if user["is_admin"] else " AND owner_uid = ?"), (status, now, lead_id) if user["is_admin"] else (status, now, lead_id, user["uid"]))
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Lead not found")
         connection.commit()
@@ -540,12 +555,12 @@ def update_lead_status(lead_id: str, payload: LeadStatusUpdate, _authorized: boo
 @app.get("/lead/{lead_id}")
 def get_lead(
     lead_id: str,
-    _authorized: bool = Depends(require_token),
+    user: dict = Depends(require_token),
 ) -> dict:
     with closing(connect_db()) as connection:
         row = connection.execute(
-            "SELECT * FROM leads WHERE id = ?",
-            (lead_id,),
+            "SELECT * FROM leads WHERE id = ?" + ("" if user["is_admin"] else " AND owner_uid = ?"),
+            (lead_id,) if user["is_admin"] else (lead_id, user["uid"]),
         ).fetchone()
 
     if not row:
@@ -613,11 +628,11 @@ async def whatsapp_webhook(request: Request) -> Response:
 
 @app.get("/admin/backup.json")
 def download_admin_backup(
-    user: dict = Depends(verify_firebase_token),
+    user: dict = Depends(require_token),
 ) -> Response:
-    """Download a private JSON backup; only the configured Firebase admin may export data."""
-    if not ADMIN_UID:
-        raise HTTPException(status_code=503, detail="ADMIN_UID is not configured on the server")
+    """Download a private JSON backup; only the configured Supabase admin may export data."""
+    if not SUPABASE_ADMIN_UID:
+        raise HTTPException(status_code=503, detail="SUPABASE_ADMIN_UID is not configured on the server")
     if not user.get("is_admin"):
         raise HTTPException(status_code=403, detail="Admin access required")
 
