@@ -87,6 +87,6 @@ export default function AdminBackup() {
       <button className="primary-button" disabled={busy}>{busy ? "Signing in…" : "Admin sign in"}</button>
     </form>}
     {message && <p role="status" style={{marginTop:12,overflowWrap:"anywhere"}}>{message}</p>}
-    <p style={{fontSize:12,marginTop:10,color:"var(--muted,#667085)"}}>Backup mein customer ke personal details honge. Public GitHub ya shared chat mein upload na karein. Manual backup only; automatic backup abhi configured nahi hai.</p>
+    <p style={{fontSize:12,marginTop:10,color:"var(--muted,#667085)"}}>Backup mein customer ke personal details honge. Public GitHub ya shared chat mein upload na karein. Manual JSON backup yahan se le sakte hain; automatic encrypted database backup rozana GitHub Actions se banta hai aur 30 din tak rakha jata hai.</p>
   </section>;
 }
