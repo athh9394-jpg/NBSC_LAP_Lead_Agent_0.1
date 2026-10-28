@@ -3,17 +3,75 @@ const API_BASE = (
   "https://nbsc-lap-backend-01.onrender.com"
 ).replace(/\/$/, "");
 
+const SUPABASE_URL = (
+  import.meta.env.VITE_SUPABASE_URL ||
+  "https://vmnpgieduiolzkrbuoei.supabase.co"
+).replace(/\/$/, "");
+const SUPABASE_KEY =
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  "sb_publishable_ty9eO2VEiIqBMC_naMy57A_EDOHgrMS";
 
+let refreshPromise = null;
 
-async function request(path, options = {}) {
+async function refreshSession() {
+  const refreshToken = localStorage.getItem("nbsc_refresh_token");
+  if (!refreshToken) return null;
+
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      const response = await fetch(
+        `${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`,
+        {
+          method: "POST",
+          headers: {
+            apikey: SUPABASE_KEY,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ refresh_token: refreshToken })
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.access_token) {
+        throw new Error(data.msg || data.message || "Session expired. Please sign in again.");
+      }
+      localStorage.setItem("nbsc_access_token", data.access_token);
+      if (data.refresh_token) {
+        localStorage.setItem("nbsc_refresh_token", data.refresh_token);
+      }
+      return data.access_token;
+    })().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
+function clearSessionAndReturnToLogin() {
+  localStorage.removeItem("nbsc_access_token");
+  localStorage.removeItem("nbsc_refresh_token");
+  // AuthGate reads the stored token on mount; reload returns the user to login.
+  window.location.reload();
+}
+
+async function request(path, options = {}, retry = true) {
+  const token = localStorage.getItem("nbsc_access_token") || "";
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
-      Authorization: `Bearer ${localStorage.getItem("nbsc_access_token") || ""}`,
+      Authorization: `Bearer ${token}`,
       ...(options.body ? { "Content-Type": "application/json" } : {}),
       ...(options.headers || {})
     }
   });
+
+  if (res.status === 401 && retry) {
+    try {
+      const newToken = await refreshSession();
+      if (newToken) return request(path, options, false);
+    } catch {
+      clearSessionAndReturnToLogin();
+    }
+  }
 
   if (!res.ok) {
     const raw = await res.text();
@@ -65,7 +123,6 @@ export async function createLead(payload) {
   });
   return data?.lead ? { ...data, lead: normalizeLead(data.lead) } : data;
 }
-
 
 export async function fetchFollowups(id) {
   const data = await request(`/lead/${encodeURIComponent(id)}/followups`);
