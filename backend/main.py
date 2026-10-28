@@ -212,32 +212,27 @@ def verify_firebase_token(
 api_bearer = HTTPBearer(auto_error=False)
 
 
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "").strip()
+
 def require_token(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(api_bearer),
-) -> bool:
-    if not API_TOKEN:
-        raise HTTPException(
-            status_code=503,
-            detail="APP_API_TOKEN is not configured on the server",
-        )
-
-    if credentials is None or not credentials.credentials:
-        raise HTTPException(
-            status_code=401,
-            detail="Authorization header is missing",
-        )
-
-    if (
-        credentials.scheme.lower() != "bearer"
-        or credentials.credentials != API_TOKEN
-    ):
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication required",
-        )
-
-    return True
-
+) -> dict:
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        raise HTTPException(status_code=503, detail="Set SUPABASE_URL and SUPABASE_ANON_KEY on Render backend")
+    if credentials is None or credentials.scheme.lower() != "bearer" or not credentials.credentials:
+        raise HTTPException(status_code=401, detail="Login required")
+    import urllib.request
+    try:
+        req = urllib.request.Request(SUPABASE_URL + "/auth/v1/user",
+            headers={"apikey": SUPABASE_ANON_KEY, "Authorization": "Bearer " + credentials.credentials})
+        with urllib.request.urlopen(req, timeout=8) as response:
+            user = json.loads(response.read().decode("utf-8"))
+        if not user.get("id"):
+            raise ValueError("Missing user id")
+        return {"uid": user["id"], "phone": user.get("phone", "")}
+    except Exception:
+        raise HTTPException(status_code=401, detail="Session invalid. Please sign in again")
 
 def normalize_phone(value: str) -> str:
     digits = re.sub(r"\D", "", value or "")
