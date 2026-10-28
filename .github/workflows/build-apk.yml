@@ -36,6 +36,9 @@ jobs:
   android-apk:
     runs-on: ubuntu-latest
     needs: web-build
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     defaults:
       run:
         working-directory: frontend
@@ -48,10 +51,13 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Install Android SDK packages
+      - name: Locate and install Android SDK packages
         run: |
-          yes | sdkmanager --licenses
-          sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
       - run: npm install
       - name: Install Capacitor Android build tools
         run: npm install --save-exact @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
