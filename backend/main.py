@@ -32,6 +32,7 @@ load_dotenv()
 APP_NAME = "NBSC LAP Lead Agent"
 API_TOKEN = os.getenv("APP_API_TOKEN", "").strip()
 ADMIN_UID = os.getenv("ADMIN_UID", "").strip()
+SUPABASE_ADMIN_UID = os.getenv("SUPABASE_ADMIN_UID", "920128ab-041c-4955-8e4a-b3574da4e733").strip()
 DB_PATH = os.getenv("DB_PATH", "./leads.db")
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 USE_POSTGRES = bool(DATABASE_URL)
@@ -152,6 +153,14 @@ def init_db() -> None:
             connection.execute("ALTER TABLE leads ADD COLUMN monthly_income REAL DEFAULT 0")
         if "customer_type" not in columns:
             connection.execute("ALTER TABLE leads ADD COLUMN customer_type TEXT DEFAULT 'business'")
+        if "owner_uid" not in columns:
+            connection.execute("ALTER TABLE leads ADD COLUMN owner_uid TEXT NULL")
+        connection.execute("""CREATE TABLE IF NOT EXISTS agent_accounts (
+            uid TEXT PRIMARY KEY,
+            is_blocked INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        )""")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_leads_owner_created ON leads (owner_uid, created_at)")
         connection.execute("""CREATE TABLE IF NOT EXISTS lead_followups (
             id TEXT PRIMARY KEY,
             lead_id TEXT NOT NULL,
@@ -230,7 +239,15 @@ def require_token(
             user = json.loads(response.read().decode("utf-8"))
         if not user.get("id"):
             raise ValueError("Missing user id")
-        return {"uid": user["id"], "phone": user.get("phone", "")}
+        uid = user["id"]
+        is_admin = bool(SUPABASE_ADMIN_UID and uid == SUPABASE_ADMIN_UID)
+        with closing(connect_db()) as connection:
+            account = connection.execute("SELECT is_blocked FROM agent_accounts WHERE uid = ?", (uid,)).fetchone()
+        if account and bool(account["is_blocked"]) and not is_admin:
+            raise HTTPException(status_code=403, detail="Your agent account is blocked. Contact admin.")
+        return {"uid": uid, "phone": user.get("phone", ""), "is_admin": is_admin}
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=401, detail="Session invalid. Please sign in again")
 
@@ -331,7 +348,7 @@ def health() -> dict:
 @app.post("/lead")
 def create_lead(
     payload: LeadCreateRequest,
-    _authorized: bool = Depends(require_token),
+    user: dict = Depends(require_token),
 ) -> dict:
     data = payload.model_dump()
 
@@ -372,8 +389,8 @@ def create_lead(
 
     with closing(connect_db()) as connection:
         existing = connection.execute(
-            "SELECT id FROM leads WHERE phone = ?",
-            (data["phone"],),
+            "SELECT id FROM leads WHERE phone = ? AND owner_uid = ?",
+            (data["phone"], user["uid"]),
         ).fetchone()
 
         if existing:
@@ -412,9 +429,9 @@ def create_lead(
                 """
                 INSERT INTO leads (
                     id, name, phone, city, product, source, budget,
-                    monthly_income, customer_type, consent_status, score, status, notes, created_at, updated_at
+                    monthly_income, customer_type, consent_status, score, status, notes, created_at, updated_at, owner_uid
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     lead_id,
@@ -432,6 +449,7 @@ def create_lead(
                     data["notes"],
                     now,
                     now,
+                    user["uid"],
                 ),
             )
             created = True
@@ -453,15 +471,15 @@ def create_lead(
 @app.get("/leads")
 def list_leads(
     limit: int = 100,
-    _authorized: bool = Depends(require_token),
+    user: dict = Depends(require_token),
 ) -> dict:
     limit = max(1, min(limit, 500))
 
     with closing(connect_db()) as connection:
-        rows = connection.execute(
-            "SELECT * FROM leads ORDER BY created_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+        if user["is_admin"]:
+            rows = connection.execute("SELECT * FROM leads ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+        else:
+            rows = connection.execute("SELECT * FROM leads WHERE owner_uid = ? ORDER BY created_at DESC LIMIT ?", (user["uid"], limit)).fetchall()
 
     return {
         "success": True,
@@ -518,135 +536,3 @@ def add_followup(lead_id: str, payload: FollowUpCreateRequest, _authorized: bool
             connection.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", ("follow_up", now, lead_id))
         connection.commit()
         row = connection.execute("SELECT * FROM lead_followups WHERE id = ?", (followup_id,)).fetchone()
-    return {"success": True, "followup": dict(row)}
-
-
-@app.patch("/lead/{lead_id}/status")
-def update_lead_status(lead_id: str, payload: LeadStatusUpdate, _authorized: bool = Depends(require_token)) -> dict:
-    allowed = {"new", "follow_up", "converted", "not_interested", "not_converted"}
-    status = payload.status.strip().lower()
-    if status not in allowed:
-        raise HTTPException(status_code=422, detail="Invalid lead status")
-    now = datetime.now(timezone.utc).isoformat()
-    with closing(connect_db()) as connection:
-        cursor = connection.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", (status, now, lead_id))
-        if cursor.rowcount == 0:
-            raise HTTPException(status_code=404, detail="Lead not found")
-        connection.commit()
-        row = connection.execute("SELECT * FROM leads WHERE id = ?", (lead_id,)).fetchone()
-    return {"success": True, "lead": dict(row)}
-
-
-@app.get("/lead/{lead_id}")
-def get_lead(
-    lead_id: str,
-    _authorized: bool = Depends(require_token),
-) -> dict:
-    with closing(connect_db()) as connection:
-        row = connection.execute(
-            "SELECT * FROM leads WHERE id = ?",
-            (lead_id,),
-        ).fetchone()
-
-    if not row:
-        raise HTTPException(
-            status_code=404,
-            detail="Lead not found",
-        )
-
-    return {
-        "success": True,
-        "lead": dict(row),
-    }
-
-
-@app.post("/webhook/whatsapp")
-async def whatsapp_webhook(request: Request) -> Response:
-    form = await request.form()
-
-    # Validate Twilio's signature when an auth token is configured.
-    if TWILIO_AUTH_TOKEN:
-        signature = request.headers.get("X-Twilio-Signature", "")
-        validator = RequestValidator(TWILIO_AUTH_TOKEN)
-        form_data = {key: value for key, value in form.items()}
-
-        if not validator.validate(str(request.url), form_data, signature):
-            raise HTTPException(
-                status_code=403,
-                detail="Invalid Twilio signature",
-            )
-
-    incoming_body = str(form.get("Body", "")).strip().lower()
-    response = MessagingResponse()
-
-    if incoming_body in {"hi", "hello", "start", "namaste"}:
-        response.message(
-            "Namaste! NBSC LAP team se sampark karne ke liye dhanyavaad. "
-            "Agar aap follow-up ke liye sahmat hain, YES reply karein; "
-            "mana karne ke liye NO reply karein. Kripya PAN, Aadhaar ya bank "
-            "documents WhatsApp par na bhejein."
-        )
-
-    elif incoming_body in {"yes", "haan", "ha", "y"}:
-        response.message(
-            "Dhanyavaad. Aapki follow-up consent note kar li gayi hai. "
-            "Team secure system se sampark karegi. Kripya PAN, Aadhaar ya "
-            "bank documents WhatsApp par na bhejein."
-        )
-
-    elif incoming_body in {"no", "nahi", "nahin", "n"}:
-        response.message(
-            "Theek hai. Aapne follow-up se mana kiya hai. "
-            "Aapko is request par aage follow-up nahi kiya jayega."
-        )
-
-    else:
-        response.message(
-            "Madad ke liye HI reply karein. Kripya PAN, Aadhaar ya bank "
-            "documents WhatsApp par na bhejein."
-        )
-
-    return Response(
-        content=str(response),
-        media_type="application/xml",
-    )
-
-@app.get("/admin/backup.json")
-def download_admin_backup(
-    user: dict = Depends(verify_firebase_token),
-) -> Response:
-    """Download a private JSON backup; only the configured Firebase admin may export data."""
-    if not ADMIN_UID:
-        raise HTTPException(status_code=503, detail="ADMIN_UID is not configured on the server")
-    if not user.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
-
-    with closing(connect_db()) as connection:
-        leads = [
-            dict(row)
-            for row in connection.execute(
-                "SELECT * FROM leads ORDER BY created_at ASC"
-            ).fetchall()
-        ]
-        followups = [
-            dict(row)
-            for row in connection.execute(
-                "SELECT * FROM lead_followups ORDER BY created_at ASC"
-            ).fetchall()
-        ]
-
-    backup = {
-        "app": APP_NAME,
-        "format_version": 1,
-        "exported_at": datetime.now(timezone.utc).isoformat(),
-        "counts": {"leads": len(leads), "followups": len(followups)},
-        "leads": leads,
-        "followups": followups,
-    }
-    filename = "nbsc-lap-backup-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + ".json"
-    return Response(
-        content=json.dumps(backup, ensure_ascii=False, indent=2),
-        media_type="application/json",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"},
-    )
-
