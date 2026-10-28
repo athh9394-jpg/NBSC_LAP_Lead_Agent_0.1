@@ -22,8 +22,17 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install backend dependencies and test tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt pytest httpx
+
       - name: Check backend syntax
         run: python -m compileall -q backend
+
+      - name: Run isolated API regression tests
+        working-directory: backend
+        run: pytest -q tests
 
       - name: Create source backup archive
         run: |
