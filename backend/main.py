@@ -512,10 +512,156 @@ def list_followups(lead_id: str, user: dict = Depends(require_token)) -> dict:
 
 
 @app.post("/lead/{lead_id}/followups")
-def add_followup(lead_id: str, payload: FollowUpCreateRequest, _authorized: bool = Depends(require_token)) -> dict:
+def add_followup(lead_id: str, payload: FollowUpCreateRequest, user: dict = Depends(require_token)) -> dict:
     channel = payload.channel.strip().lower()
     outcome = payload.outcome.strip().lower()
     if channel not in {"call", "whatsapp", "in_person", "other"}:
         raise HTTPException(status_code=422, detail="Invalid follow-up channel")
     if outcome not in {"attempted", "connected", "no_answer", "callback", "interested", "not_interested", "converted"}:
         raise HTTPException(status_code=422, detail="Invalid follow-up outcome")
+    now = datetime.now(timezone.utc).isoformat()
+    followup_id = str(uuid.uuid4())
+    with closing(connect_db()) as connection:
+        exists = connection.execute("SELECT id FROM leads WHERE id = ?" + ("" if user["is_admin"] else " AND owner_uid = ?"), (lead_id,) if user["is_admin"] else (lead_id, user["uid"])).fetchone()
+        if not exists:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        connection.execute(
+            "INSERT INTO lead_followups (id, lead_id, channel, outcome, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (followup_id, lead_id, channel, outcome, payload.notes.strip(), now),
+        )
+        new_status = "converted" if outcome == "converted" else ("not_interested" if outcome == "not_interested" else "follow_up")
+        connection.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?", (new_status, now, lead_id))
+        connection.commit()
+        row = connection.execute("SELECT * FROM lead_followups WHERE id = ?", (followup_id,)).fetchone()
+    return {"success": True, "followup": dict(row)}
+
+
+@app.patch("/lead/{lead_id}/status")
+def update_lead_status(lead_id: str, payload: LeadStatusUpdate, user: dict = Depends(require_token)) -> dict:
+    allowed = {"new", "follow_up", "converted", "not_interested", "not_converted"}
+    status = payload.status.strip().lower()
+    if status not in allowed:
+        raise HTTPException(status_code=422, detail="Invalid lead status")
+    now = datetime.now(timezone.utc).isoformat()
+    with closing(connect_db()) as connection:
+        cursor = connection.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?" + ("" if user["is_admin"] else " AND owner_uid = ?"), (status, now, lead_id) if user["is_admin"] else (status, now, lead_id, user["uid"]))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        connection.commit()
+        row = connection.execute("SELECT * FROM leads WHERE id = ?", (lead_id,)).fetchone()
+    return {"success": True, "lead": dict(row)}
+
+
+@app.get("/lead/{lead_id}")
+def get_lead(
+    lead_id: str,
+    user: dict = Depends(require_token),
+) -> dict:
+    with closing(connect_db()) as connection:
+        row = connection.execute(
+            "SELECT * FROM leads WHERE id = ?" + ("" if user["is_admin"] else " AND owner_uid = ?"),
+            (lead_id,) if user["is_admin"] else (lead_id, user["uid"]),
+        ).fetchone()
+
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail="Lead not found",
+        )
+
+    return {
+        "success": True,
+        "lead": dict(row),
+    }
+
+
+@app.post("/webhook/whatsapp")
+async def whatsapp_webhook(request: Request) -> Response:
+    form = await request.form()
+
+    # Validate Twilio's signature when an auth token is configured.
+    if TWILIO_AUTH_TOKEN:
+        signature = request.headers.get("X-Twilio-Signature", "")
+        validator = RequestValidator(TWILIO_AUTH_TOKEN)
+        form_data = {key: value for key, value in form.items()}
+
+        if not validator.validate(str(request.url), form_data, signature):
+            raise HTTPException(
+                status_code=403,
+                detail="Invalid Twilio signature",
+            )
+
+    incoming_body = str(form.get("Body", "")).strip().lower()
+    response = MessagingResponse()
+
+    if incoming_body in {"hi", "hello", "start", "namaste"}:
+        response.message(
+            "Namaste! NBSC LAP team se sampark karne ke liye dhanyavaad. "
+            "Agar aap follow-up ke liye sahmat hain, YES reply karein; "
+            "mana karne ke liye NO reply karein. Kripya PAN, Aadhaar ya bank "
+            "documents WhatsApp par na bhejein."
+        )
+
+    elif incoming_body in {"yes", "haan", "ha", "y"}:
+        response.message(
+            "Dhanyavaad. Aapki follow-up consent note kar li gayi hai. "
+            "Team secure system se sampark karegi. Kripya PAN, Aadhaar ya "
+            "bank documents WhatsApp par na bhejein."
+        )
+
+    elif incoming_body in {"no", "nahi", "nahin", "n"}:
+        response.message(
+            "Theek hai. Aapne follow-up se mana kiya hai. "
+            "Aapko is request par aage follow-up nahi kiya jayega."
+        )
+
+    else:
+        response.message(
+            "Madad ke liye HI reply karein. Kripya PAN, Aadhaar ya bank "
+            "documents WhatsApp par na bhejein."
+        )
+
+    return Response(
+        content=str(response),
+        media_type="application/xml",
+    )
+
+@app.get("/admin/backup.json")
+def download_admin_backup(
+    user: dict = Depends(require_token),
+) -> Response:
+    """Download a private JSON backup; only the configured Supabase admin may export data."""
+    if not SUPABASE_ADMIN_UID:
+        raise HTTPException(status_code=503, detail="SUPABASE_ADMIN_UID is not configured on the server")
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    with closing(connect_db()) as connection:
+        leads = [
+            dict(row)
+            for row in connection.execute(
+                "SELECT * FROM leads ORDER BY created_at ASC"
+            ).fetchall()
+        ]
+        followups = [
+            dict(row)
+            for row in connection.execute(
+                "SELECT * FROM lead_followups ORDER BY created_at ASC"
+            ).fetchall()
+        ]
+
+    backup = {
+        "app": APP_NAME,
+        "format_version": 1,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "counts": {"leads": len(leads), "followups": len(followups)},
+        "leads": leads,
+        "followups": followups,
+    }
+    filename = "nbsc-lap-backup-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + ".json"
+    return Response(
+        content=json.dumps(backup, ensure_ascii=False, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"},
+    )
+
