@@ -1,0 +1,35 @@
+name: Daily source backup and backend checks
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 5 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check backend syntax
+        run: python -m compileall -q backend
+
+      - name: Create source backup archive
+        run: |
+          git archive --format=zip --output=nbsc-lap-source-backup.zip HEAD
+
+      - name: Store source backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nbsc-lap-source-backup-${{ github.run_number }}
+          path: nbsc-lap-source-backup.zip
+          retention-days: 30
