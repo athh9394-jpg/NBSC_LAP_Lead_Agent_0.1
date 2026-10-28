@@ -49,11 +49,8 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@v3
-        with:
-          packages: |
-            platform-tools
-            platforms;android-35
-            build-tools;35.0.0
+      - name: Install Android SDK packages
+        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
       - run: npm install
       - name: Install Capacitor Android build tools
         run: npm install --save-exact @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
