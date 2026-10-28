@@ -23,7 +23,6 @@ import android.widget.Toast;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
-import java.util.Base64;
 
 public class MainActivity extends Activity {
     private WebView webView;
@@ -92,7 +91,6 @@ public class MainActivity extends Activity {
     }
 
     private String safeFileName(String contentDisposition, String url) {
-        // Backups are JSON; use a predictable safe filename on Android.
         return "nbsc-lap-backup.json";
     }
 
