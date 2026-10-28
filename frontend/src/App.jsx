@@ -132,8 +132,6 @@ export default function App() {
         <button onClick={load} className="refresh" disabled={loading}>↻ Refresh</button>
       </header>
 
-      <AdminBackup />
-
       <section className="stats">
         <Stat title="Total Leads" value={counts.total} color="blue" icon="▤" />
         <Stat title="Hot Leads" value={counts.hot} color="green" icon="🔥" />
@@ -170,6 +168,7 @@ export default function App() {
           {visible.map(lead=><tr key={lead.id} className="clickable-row" onClick={() => openLead(lead)} title="Tap karke complete lead details dekhein"><td><div className="person"><span className="avatar">{(lead.name || "L").slice(0,1).toUpperCase()}</span><div><b>{lead.name || "Unnamed lead"}</b><small>{lead.source || "Unknown source"}</small></div></div></td><td>{lead.phone || "—"}</td><td><span className={`type-pill ${lead.customer_type || "business"}`}>{lead.customer_type === "salary" ? "Salary" : "Business"}</span></td><td>{lead.city || "—"}</td><td>{money(lead.loan_amount)}</td><td>{money(lead.monthly_income)}</td><td><span className={`badge ${lead.qualification_label || "cold"}`}>{lead.qualification_label || "cold"}</span></td><td><span className="status">{lead.lead_status || "new"}</span></td><td><b>{lead.qualification_score ?? 0}</b><span className="outof"> / 100</span></td></tr>)}
         </tbody></table></div>}
       </section>
+      <AdminBackup />
       <footer>NBSC LAP Lead Agent · Lead score sirf sales follow-up priority ke liye hai, loan approval nahi.</footer>
       {selectedLead && <div className="modal-backdrop" onClick={() => setSelectedLead(null)}><section className="lead-modal" role="dialog" aria-modal="true" aria-label="Lead details" onClick={e => e.stopPropagation()}>
         <div className="modal-header"><div><span className="eyebrow">LEAD DETAILS</span><h2>{selectedLead.name || "Unnamed lead"}</h2><p>{selectedLead.city || "City not provided"} · {selectedLead.customer_type === "salary" ? "Salary customer" : "Business customer"}</p></div><button className="modal-close" onClick={() => setSelectedLead(null)} aria-label="Close">✕</button></div>
