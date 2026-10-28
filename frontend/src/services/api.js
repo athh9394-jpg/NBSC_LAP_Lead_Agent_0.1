@@ -3,13 +3,13 @@ const API_BASE = (
   "https://nbsc-lap-backend-01.onrender.com"
 ).replace(/\/$/, "");
 
-const TOKEN = import.meta.env.VITE_API_TOKEN || "";
+
 
 async function request(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
-      Authorization: `Bearer ${TOKEN}`,
+      Authorization: `Bearer ${localStorage.getItem("nbsc_access_token") || ""}`,
       ...(options.body ? { "Content-Type": "application/json" } : {}),
       ...(options.headers || {})
     }
