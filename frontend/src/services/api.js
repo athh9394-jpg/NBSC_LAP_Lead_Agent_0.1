@@ -68,6 +68,7 @@ async function request(path, options = {}, retry = true) {
     try {
       const newToken = await refreshSession();
       if (newToken) return request(path, options, false);
+      clearSessionAndReturnToLogin();
     } catch {
       clearSessionAndReturnToLogin();
     }
