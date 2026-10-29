@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import App from "./App.jsx";
 import AgentDashboard from "./AgentDashboard.jsx";
 import "./auth.css";
@@ -26,6 +26,7 @@ export default function AuthGate() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [session, setSession] = useState(() => localStorage.getItem("nbsc_access_token") || "");
+  const [recoveryToken, setRecoveryToken] = useState("");
 
   const isEmail = value => value.trim().includes("@");
   const normalizedIdentity = () => {
@@ -57,6 +58,33 @@ export default function AuthGate() {
     localStorage.setItem("nbsc_refresh_token", data.refresh_token || "");
     setSession(data.access_token);
   }
+
+  // Supabase confirmation/recovery links return tokens in the URL hash.
+  // Handle them here so a valid email link can finish registration or reset.
+  useEffect(() => {
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const query = new URLSearchParams(window.location.search);
+    const accessToken = hash.get("access_token") || query.get("access_token");
+    const refreshToken = hash.get("refresh_token") || query.get("refresh_token") || "";
+    const type = hash.get("type") || query.get("type") || "";
+    const errorDescription = hash.get("error_description") || query.get("error_description");
+
+    if (errorDescription) {
+      setMessage(errorDescription.replace(/\\+/g, " "));
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return;
+    }
+    if (!accessToken) return;
+
+    if (type === "recovery") {
+      setRecoveryToken(accessToken);
+      setMode("verify-reset");
+      setMessage("Recovery link verify ho gaya. Ab naya password set karein.");
+    } else {
+      saveSession({ access_token: accessToken, refresh_token: refreshToken });
+    }
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }, []);
 
   async function submit(event) {
     event.preventDefault();
@@ -95,19 +123,26 @@ export default function AuthGate() {
       }
 
       const emailFlow = isEmail(identity);
-      const verifyType = mode === "verify-register" ? (emailFlow ? "signup" : "sms") : "recovery";
-      data = await call("verify", emailFlow
-        ? { email: normalizedIdentity(), token: otp.trim(), type: verifyType }
-        : { phone: normalizedIdentity(), token: otp.trim(), type: verifyType });
-
       if (mode === "verify-register") {
+        const verifyType = emailFlow ? "signup" : "sms";
+        data = await call("verify", emailFlow
+          ? { email: normalizedIdentity(), token: otp.trim(), type: verifyType }
+          : { phone: normalizedIdentity(), token: otp.trim(), type: verifyType });
         saveSession(data);
         return;
       }
-      if (!data.access_token) throw new Error("Recovery code verify hua, lekin reset session nahi mila. Naya recovery code mangayein.");
+
+      let accessToken = recoveryToken;
+      if (!accessToken) {
+        data = await call("verify", emailFlow
+          ? { email: normalizedIdentity(), token: otp.trim(), type: "recovery" }
+          : { phone: normalizedIdentity(), token: otp.trim(), type: "recovery" });
+        accessToken = data.access_token;
+      }
+      if (!accessToken) throw new Error("Recovery verify hua, lekin reset session nahi mila. Naya recovery code/link mangayein.");
       const response = await fetch(URL + "/auth/v1/user", {
         method: "PUT",
-        headers: { apikey: KEY, "Content-Type": "application/json", Authorization: "Bearer " + data.access_token },
+        headers: { apikey: KEY, "Content-Type": "application/json", Authorization: "Bearer " + accessToken },
         body: JSON.stringify({ password: newPassword })
       });
       const result = await response.json().catch(() => ({}));
@@ -115,6 +150,7 @@ export default function AuthGate() {
       setMode("login");
       setOtp("");
       setNewPassword("");
+      setRecoveryToken("");
       setMessage("Password update ho gaya. Ab naye password se Login karein.");
     } catch (error) {
       setMessage(error.message || "Request fail hui. Supabase Auth settings check karein.");
@@ -143,7 +179,7 @@ export default function AuthGate() {
         <input type="password" value={password} onChange={event => setPassword(event.target.value)}
           autoComplete={mode === "login" ? "current-password" : "new-password"} minLength="8" required />
       </label>}
-      {verify && <label>{emailFlow ? "Email confirmation / recovery code" : "SMS OTP"}
+      {verify && !(mode === "verify-reset" && recoveryToken) && <label>{emailFlow ? "Email confirmation / recovery code" : "SMS OTP"}
         <input value={otp} onChange={event => setOtp(event.target.value)} inputMode="numeric"
           autoComplete="one-time-code" minLength="6" maxLength="8" required />
       </label>}
@@ -152,7 +188,7 @@ export default function AuthGate() {
           autoComplete="new-password" minLength="8" required />
       </label>}
       <button className="auth-submit" disabled={busy}>
-        {busy ? "Please wait…" : verify ? "Verify code" : mode === "login" ? "Login" : mode === "register" ? "Create account & send code" : "Send password reset code"}
+        {busy ? "Please wait…" : mode === "verify-reset" && recoveryToken ? "Set new password" : verify ? "Verify code" : mode === "login" ? "Login" : mode === "register" ? "Create account & send code" : "Send password reset code"}
       </button>
       <div className="auth-links">
         {!verify && <>
