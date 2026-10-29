@@ -15,7 +15,20 @@ on:
 permissions:
   contents: read
 jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend dependencies and test tools
+        run: python -m pip install -r backend/requirements.txt pytest httpx
+      - name: Run backend API tests using isolated SQLite and mocked Supabase Auth
+        run: pytest -q backend/tests
+
   web-build:
+    needs: backend-tests
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -84,6 +97,12 @@ jobs:
       - run: npx cap sync android
       - name: Build debug APK
         run: cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+      - name: Verify APK and calculate SHA-256
+        run: |
+          APK="frontend/android/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          ls -lh "$APK"
+          sha256sum "$APK"
       - uses: actions/upload-artifact@v4
         with:
           name: nbsc-lap-debug-apk
