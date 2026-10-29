@@ -142,7 +142,7 @@ export default function AuthGate() {
       <p className="auth-sub">Lead Agent · Secure login</p>
       {!verify && <label>{identifierLabel}
         <input value={identity} onChange={event => setIdentity(event.target.value)} type="text"
-          inputMode="email" autoComplete={mode === "login" ? "username" : "email"}
+          inputMode={isEmail(identity) ? "email" : "tel"} autoComplete={mode === "login" ? "username" : (isEmail(identity) ? "email" : "tel")}
           placeholder={identifierPlaceholder} required />
       </label>}
       {(mode === "login" || mode === "register") && <label>{mode === "login" ? "Password" : "Create password"}
