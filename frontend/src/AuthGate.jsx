@@ -75,33 +75,26 @@ export default function AuthGate() {
       }
 
       if (mode === "register") {
-        if (email) {
-          data = await call("signup", { email: value, password });
-        } else {
-          data = await call("signup", { phone: value, password });
-        }
+        if (!email) throw new Error("Free registration ke liye email address aur password use karein. SMS OTP abhi configured nahi hai.");
+        data = await call("signup", { email: value, password });
         if (data.access_token) {
           saveSession(data);
           return;
         }
         setMode("verify-register");
-        setMessage(email
-          ? "Registration request bheji gayi. Email par Supabase ka confirmation code check karein, spam folder bhi dekhein."
-          : "Registration request bheji gayi. SMS provider configured aur number eligible hai to SMS OTP aayega.");
+        setMessage("Registration request bheji gayi. Supabase email confirmation settings ke hisaab se inbox/spam mein confirmation email ya code check karein.");
         return;
       }
 
       if (mode === "forgot") {
-        await call("otp", email ? { email: value, create_user: false } : { phone: value, create_user: false });
-        setMode("verify-reset");
-        setMessage(email
-          ? "Agar email registered hai, to email par recovery code bheja gaya. Inbox aur spam check karein."
-          : "Agar mobile registered hai, to SMS recovery OTP bheja gaya.");
+        if (!email) throw new Error("Free password recovery ke liye registered email address use karein. SMS recovery abhi available nahi hai.");
+        await call("recover", { email: value, redirect_to: window.location.origin });
+        setMessage("Agar email registered hai, to password recovery link bheja gaya hai. Inbox aur spam folder check karein. Link kholne ke baad app mein wapas aakar naya password set karein.");
         return;
       }
 
       const emailFlow = isEmail(identity);
-      const verifyType = mode === "verify-register" ? (emailFlow ? "email" : "sms") : "recovery";
+      const verifyType = mode === "verify-register" ? (emailFlow ? "signup" : "sms") : "recovery";
       data = await call("verify", emailFlow
         ? { email: normalizedIdentity(), token: otp.trim(), type: verifyType }
         : { phone: normalizedIdentity(), token: otp.trim(), type: verifyType });
@@ -132,8 +125,8 @@ export default function AuthGate() {
   if (session) return isAdminToken(session) ? <App onLogout={logout} /> : <AgentDashboard onLogout={logout} />;
   const verify = mode.startsWith("verify-");
   const emailFlow = isEmail(identity);
-  const identifierLabel = mode === "login" ? "Email ya agent mobile number" : "Agent email ya mobile number";
-  const identifierPlaceholder = mode === "login" ? "name@example.com ya 10 digit mobile" : "Agent email ya +91 mobile number";
+  const identifierLabel = mode === "login" ? "Email ya agent mobile number" : "Agent email address";
+  const identifierPlaceholder = mode === "login" ? "name@example.com ya 10 digit mobile" : "agent@example.com";
 
   return <main className="auth-shell">
     <form className="auth-card" onSubmit={submit}>
@@ -169,7 +162,7 @@ export default function AuthGate() {
         {verify && <button type="button" onClick={() => { setMode("login"); setOtp(""); setMessage(""); }}>Back to Login</button>}
       </div>
       {message && <p className="auth-message" role="status">{message}</p>}
-      <small className="auth-note">Admin apne existing email aur password se login karein. Agents email + password ya mobile + password se register/login kar sakte hain. Email confirmation Supabase Email Auth settings par depend karti hai; SMS OTP ke liye Twilio setup zaroori hai.</small>
+      <small className="auth-note">Admin apne existing email aur password se login karein. Free agent registration email + password se hai. Mobile number ko agent profile mein baad mein add kiya ja sakta hai; mobile SMS OTP ke liye SMS provider setup zaroori hota hai.</small>
     </form>
   </main>;
 }
