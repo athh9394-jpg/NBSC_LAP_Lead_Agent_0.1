@@ -231,10 +231,16 @@ def require_token(
         raise HTTPException(status_code=503, detail="Set SUPABASE_URL and SUPABASE_ANON_KEY on Render backend")
     if credentials is None or credentials.scheme.lower() != "bearer" or not credentials.credentials:
         raise HTTPException(status_code=401, detail="Login required")
+    import urllib.error
     import urllib.request
     try:
-        req = urllib.request.Request(SUPABASE_URL + "/auth/v1/user",
-            headers={"apikey": SUPABASE_ANON_KEY, "Authorization": "Bearer " + credentials.credentials})
+        req = urllib.request.Request(
+            SUPABASE_URL + "/auth/v1/user",
+            headers={
+                "apikey": SUPABASE_ANON_KEY,
+                "Authorization": "Bearer " + credentials.credentials,
+            },
+        )
         with urllib.request.urlopen(req, timeout=8) as response:
             user = json.loads(response.read().decode("utf-8"))
         if not user.get("id"):
@@ -242,12 +248,26 @@ def require_token(
         uid = user["id"]
         is_admin = bool(SUPABASE_ADMIN_UID and uid == SUPABASE_ADMIN_UID)
         with closing(connect_db()) as connection:
-            account = connection.execute("SELECT is_blocked FROM agent_accounts WHERE uid = ?", (uid,)).fetchone()
+            account = connection.execute(
+                "SELECT is_blocked FROM agent_accounts WHERE uid = ?", (uid,)
+            ).fetchone()
         if account and bool(account["is_blocked"]) and not is_admin:
             raise HTTPException(status_code=403, detail="Your agent account is blocked. Contact admin.")
         return {"uid": uid, "phone": user.get("phone", ""), "is_admin": is_admin}
     except HTTPException:
         raise
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            raise HTTPException(status_code=401, detail="Session invalid. Please sign in again")
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication service is temporarily unavailable. Please try again.",
+        )
+    except (urllib.error.URLError, TimeoutError):
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication service is temporarily unavailable. Please try again.",
+        )
     except Exception:
         raise HTTPException(status_code=401, detail="Session invalid. Please sign in again")
 
@@ -522,9 +542,17 @@ def add_followup(lead_id: str, payload: FollowUpCreateRequest, user: dict = Depe
     now = datetime.now(timezone.utc).isoformat()
     followup_id = str(uuid.uuid4())
     with closing(connect_db()) as connection:
-        exists = connection.execute("SELECT id FROM leads WHERE id = ?" + ("" if user["is_admin"] else " AND owner_uid = ?"), (lead_id,) if user["is_admin"] else (lead_id, user["uid"])).fetchone()
+        exists = connection.execute(
+            "SELECT id, consent_status FROM leads WHERE id = ?" + ("" if user["is_admin"] else " AND owner_uid = ?"),
+            (lead_id,) if user["is_admin"] else (lead_id, user["uid"]),
+        ).fetchone()
         if not exists:
             raise HTTPException(status_code=404, detail="Lead not found")
+        if str(exists["consent_status"] or "").strip().lower() in {"no", "false"}:
+            raise HTTPException(
+                status_code=403,
+                detail="Customer has declined follow-up. Update consent only after renewed permission.",
+            )
         connection.execute(
             "INSERT INTO lead_followups (id, lead_id, channel, outcome, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             (followup_id, lead_id, channel, outcome, payload.notes.strip(), now),
