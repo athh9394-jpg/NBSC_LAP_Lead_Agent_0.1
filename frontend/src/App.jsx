@@ -35,6 +35,12 @@ export default function App() {
 
   useEffect(() => { load(); }, []);
 
+  function logout() {
+    localStorage.removeItem("nbsc_access_token");
+    localStorage.removeItem("nbsc_refresh_token");
+    window.location.reload();
+  }
+
   async function openLead(lead) {
     setSelectedLead(lead); setFollowups([]); setDetailMessage("");
     setFollowupForm({channel:"call", outcome:"attempted", notes:""}); setDetailLoading(true);
@@ -129,7 +135,7 @@ export default function App() {
     <main className="main">
       <header className="topbar">
         <div><div className="eyebrow">WORKSPACE / OVERVIEW</div><h1>Sales Dashboard</h1><p>NBSC LAP lead pipeline ka snapshot</p></div>
-        <button onClick={load} className="refresh" disabled={loading}>↻ Refresh</button>
+        <div className="topbar-actions"><button onClick={load} className="refresh" disabled={loading}>↻ Refresh</button><button onClick={logout} className="refresh" type="button">Logout</button></div>
       </header>
 
       <section className="stats">
