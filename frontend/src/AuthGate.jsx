@@ -98,7 +98,7 @@ export default function AuthGate(){
         <input type="password" value={password} onChange={e=>W(e.target.value)} autoComplete={mode==="login"?"current-password":"new-password"} minLength={mode==="register"?8:undefined} required/>
       </label>}
       {verify&&<label>Email OTP
-        <input value={otp} onChange={e=>O(e.target.value)} inputMode="numeric" autoComplete="one-time-code" minLength="6" maxLength="8" placeholder="Email mein mila code" required/>
+        <input value={otp} onChange={e=>O(e.target.value.replace(/\\D/g,"").slice(0,6))} type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" minLength="6" maxLength="6" placeholder="6 digit email code" aria-label="6 digit email OTP" required/>
       </label>}
       {mode==="verify-reset"&&<label>New password
         <input type="password" value={np} onChange={e=>N(e.target.value)} autoComplete="new-password" minLength="8" required/>
