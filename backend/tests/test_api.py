@@ -1,22 +1,38 @@
+import io
+import json
 import os
 import sys
+import urllib.error
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-import pytest
 from fastapi.testclient import TestClient
+import pytest
 
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
-    # Import the app after dependencies are installed, then isolate it from
-    # production by forcing a temporary SQLite database and a test-only token.
+    # Isolate the database and mock Supabase Auth; tests never contact production.
     import main
 
     monkeypatch.setattr(main, "USE_POSTGRES", False)
     monkeypatch.setattr(main, "DB_PATH", str(tmp_path / "test-leads.db"))
-    monkeypatch.setattr(main, "API_TOKEN", "test-only-token")
-    monkeypatch.setattr(main, "ADMIN_UID", "test-admin-uid")
+    monkeypatch.setattr(main, "SUPABASE_URL", "https://supabase.test")
+    monkeypatch.setattr(main, "SUPABASE_ANON_KEY", "test-publishable-key")
+    monkeypatch.setattr(main, "SUPABASE_ADMIN_UID", "test-admin-uid")
+
+    def fake_urlopen(request, timeout=8):
+        token = (request.get_header("Authorization") or "").removeprefix("Bearer ").strip()
+        users = {
+            "test-only-token": {"id": "test-agent-uid", "email": "agent@example.test"},
+            "other-agent-token": {"id": "other-agent-uid", "email": "other@example.test"},
+            "admin-test-token": {"id": "test-admin-uid", "email": "admin@example.test"},
+        }
+        if token not in users:
+            raise urllib.error.HTTPError(request.full_url, 401, "invalid token", {}, None)
+        return io.BytesIO(json.dumps(users[token]).encode("utf-8"))
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     with TestClient(main.app) as test_client:
         yield test_client
 
@@ -28,8 +44,7 @@ def test_health_is_public(client):
 
 
 def test_leads_requires_authentication(client):
-    response = client.get("/leads")
-    assert response.status_code == 401
+    assert client.get("/leads").status_code == 401
 
 
 def test_invalid_token_is_rejected(client):
@@ -96,3 +111,19 @@ def test_invalid_customer_type_is_rejected(client):
         headers={"Authorization": "Bearer test-only-token"},
     )
     assert response.status_code == 422
+
+
+def test_agent_cannot_read_another_agents_lead(client):
+    lead = client.post(
+        "/lead",
+        json={"name": "Private Lead", "phone": "9876543210"},
+        headers={"Authorization": "Bearer test-only-token"},
+    )
+    assert lead.status_code == 200
+    lead_id = lead.json()["lead"]["id"]
+
+    response = client.get(
+        f"/lead/{lead_id}",
+        headers={"Authorization": "Bearer other-agent-token"},
+    )
+    assert response.status_code == 404
