@@ -127,3 +127,40 @@ def test_agent_cannot_read_another_agents_lead(client):
         headers={"Authorization": "Bearer other-agent-token"},
     )
     assert response.status_code == 404
+
+
+
+def test_followup_is_blocked_when_customer_declines_contact(client):
+    headers = {"Authorization": "Bearer test-only-token"}
+    lead = client.post(
+        "/lead",
+        json={
+            "name": "No Contact Customer",
+            "phone": "9123456789",
+            "consent_status": "no",
+        },
+        headers=headers,
+    )
+    assert lead.status_code == 200, lead.text
+    lead_id = lead.json()["lead"]["id"]
+
+    response = client.post(
+        f"/lead/{lead_id}/followups",
+        json={"channel": "call", "outcome": "attempted", "notes": "must be blocked"},
+        headers=headers,
+    )
+    assert response.status_code == 403
+    assert "declined follow-up" in response.json()["detail"]
+
+
+def test_auth_service_outage_returns_503_without_marking_session_invalid(client, monkeypatch):
+    def auth_unavailable(request, timeout=8):
+        raise urllib.error.URLError("simulated network outage")
+
+    monkeypatch.setattr("urllib.request.urlopen", auth_unavailable)
+    response = client.get(
+        "/leads",
+        headers={"Authorization": "Bearer test-only-token"},
+    )
+    assert response.status_code == 503
+    assert "temporarily unavailable" in response.json()["detail"]
