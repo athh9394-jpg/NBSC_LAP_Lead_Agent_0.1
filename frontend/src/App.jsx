@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { createLead, fetchLeads, fetchFollowups, addFollowup, updateLeadStatus } from "./services/api";
+import { createLead, fetchLeads, fetchFollowups, addFollowup, updateLeadStatus, logoutSession } from "./services/api";
 import AdminBackup from "./AdminBackup.jsx";
 
 const emptyForm = {
@@ -36,9 +36,7 @@ export default function App() {
   useEffect(() => { load(); }, []);
 
   function logout() {
-    localStorage.removeItem("nbsc_access_token");
-    localStorage.removeItem("nbsc_refresh_token");
-    window.location.reload();
+    void logoutSession();
   }
 
   async function openLead(lead) {
