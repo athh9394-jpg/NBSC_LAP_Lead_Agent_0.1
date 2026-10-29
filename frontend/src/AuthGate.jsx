@@ -70,7 +70,7 @@ export default function AuthGate() {
     const errorDescription = hash.get("error_description") || query.get("error_description");
 
     if (errorDescription) {
-      setMessage(errorDescription.replace(/\+/g, " ");
+      setMessage(errorDescription.replace(/\+/g, " "));
       window.history.replaceState({}, document.title, window.location.pathname);
       return;
     }
