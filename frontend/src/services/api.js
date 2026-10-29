@@ -142,3 +142,33 @@ export async function updateLeadStatus(id, status) {
   });
   return data?.lead ? normalizeLead(data.lead) : data;
 }
+
+
+// Revoke the Supabase session when possible; always clear local credentials even offline.
+export async function logoutSession() {
+  const accessToken = localStorage.getItem("nbsc_access_token") || "";
+  try {
+    if (accessToken) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      try {
+        await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
+          method: "POST",
+          headers: {
+            apikey: SUPABASE_KEY,
+            Authorization: `Bearer ${accessToken}`
+          },
+          signal: controller.signal
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    }
+  } catch {
+    // Offline logout must still clear this device's stored session.
+  } finally {
+    localStorage.removeItem("nbsc_access_token");
+    localStorage.removeItem("nbsc_refresh_token");
+    window.location.reload();
+  }
+}
