@@ -88,8 +88,9 @@ export default function AuthGate() {
 
       if (mode === "forgot") {
         if (!email) throw new Error("Free password recovery ke liye registered email address use karein. SMS recovery abhi available nahi hai.");
-        await call("recover", { email: value, redirect_to: window.location.origin });
-        setMessage("Agar email registered hai, to password recovery link bheja gaya hai. Inbox aur spam folder check karein. Link kholne ke baad app mein wapas aakar naya password set karein.");
+        await call("otp", { email: value, create_user: false });
+        setMode("verify-reset");
+        setMessage("Agar email registered hai, to recovery code bheja gaya hai. Inbox aur spam folder check karein.");
         return;
       }
 
