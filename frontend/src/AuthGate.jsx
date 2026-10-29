@@ -50,14 +50,17 @@ export default function AuthGate(){
         if(password.length<8) throw new Error("Password kam se kam 8 characters ka hona chahiye.");
         d=await call("signup",{email,password});
         if(d.access_token){ saveSession(d); T(d.access_token); return; }
+        if (d.user && Array.isArray(d.user.identities) && d.user.identities.length === 0) {
+          throw new Error("Is email se account pehle se registered ho sakta hai. Login karein ya Forgot password se password reset karein.");
+        }
         M("verify-register");
-        S("Signup request bhej di gayi. Email inbox aur Spam/Junk folder mein Supabase ka OTP dekhein, phir code enter karein.");
+        S("Signup request process ho gayi. Supabase ke Confirm Signup email mein OTP configured hona chahiye. Inbox aur Spam/Junk check karein.");
         return;
       }
       if(mode==="forgot"){
-        await call("otp",{email,create_user:false});
+        await call("recover",{email});
         M("verify-reset");
-        S("Agar is email par account hai, OTP bhejne ki request ho gayi. Inbox aur Spam/Junk check karein.");
+        S("Password recovery email request ho gayi. Supabase ke Reset Password email template mein OTP configured hona chahiye. Inbox aur Spam/Junk check karein.");
         return;
       }
       if(mode==="verify-register"){
@@ -85,7 +88,6 @@ export default function AuthGate(){
   }
 
   const verify=mode==="verify-register"||mode==="verify-reset";
-  const needsEmail=mode!=="login";
   return <main className="auth-shell">
     <form className="auth-card" onSubmit={submit}>
       <div className="auth-mark">N</div><h1>NBSC LAP</h1><p className="auth-sub">Lead Agent · Secure login</p>
