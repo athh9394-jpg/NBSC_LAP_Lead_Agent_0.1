@@ -8,7 +8,7 @@ const emptyForm = {
   source: "website", consent_status: "pending", notes: ""
 };
 
-export default function App() {
+export default function App({ onLogout }) {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -129,7 +129,7 @@ export default function App() {
     <main className="main">
       <header className="topbar">
         <div><div className="eyebrow">WORKSPACE / OVERVIEW</div><h1>Sales Dashboard</h1><p>NBSC LAP lead pipeline ka snapshot</p></div>
-        <button onClick={load} className="refresh" disabled={loading}>↻ Refresh</button>
+        <div className="topbar-actions"><button onClick={load} className="refresh" disabled={loading}>↻ Refresh</button>{onLogout && <button onClick={onLogout} className="refresh">Logout</button>}</div>
       </header>
 
       <section className="stats">
