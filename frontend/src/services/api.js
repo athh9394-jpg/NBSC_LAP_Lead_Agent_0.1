@@ -184,3 +184,8 @@ export async function logoutSession() {
     window.location.reload();
   }
 }
+
+
+export async function fetchCurrentUser() {
+  return request("/me");
+}
