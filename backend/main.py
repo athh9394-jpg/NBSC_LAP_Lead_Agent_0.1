@@ -251,6 +251,14 @@ def require_token(
             account = connection.execute(
                 "SELECT is_blocked FROM agent_accounts WHERE uid = ?", (uid,)
             ).fetchone()
+            if account is None and not is_admin:
+                # Track authenticated agents so the admin can see and manage them.
+                connection.execute(
+                    "INSERT INTO agent_accounts (uid, is_blocked, created_at) VALUES (?, 0, ?)",
+                    (uid, datetime.now(timezone.utc).isoformat()),
+                )
+                connection.commit()
+                account = {"is_blocked": 0}
         if account and bool(account["is_blocked"]) and not is_admin:
             raise HTTPException(status_code=403, detail="Your agent account is blocked. Contact admin.")
         return {"uid": uid, "phone": user.get("phone", ""), "is_admin": is_admin}
@@ -653,6 +661,55 @@ async def whatsapp_webhook(request: Request) -> Response:
         content=str(response),
         media_type="application/xml",
     )
+
+
+
+
+@app.get("/admin/agents")
+def list_agents(user: dict = Depends(require_token)) -> dict:
+    """List agents seen by the backend; never expose this data to non-admin users."""
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    with closing(connect_db()) as connection:
+        rows = connection.execute(
+            """
+            SELECT a.uid, a.is_blocked, a.created_at,
+                   COUNT(l.id) AS lead_count
+            FROM agent_accounts a
+            LEFT JOIN leads l ON l.owner_uid = a.uid
+            WHERE a.uid <> ?
+            GROUP BY a.uid, a.is_blocked, a.created_at
+            ORDER BY a.created_at DESC
+            """,
+            (SUPABASE_ADMIN_UID,),
+        ).fetchall()
+    return {"success": True, "agents": [dict(row) for row in rows]}
+
+
+class AgentBlockRequest(BaseModel):
+    is_blocked: bool
+
+
+@app.patch("/admin/agents/{agent_uid}/block")
+def set_agent_block(agent_uid: str, payload: AgentBlockRequest, user: dict = Depends(require_token)) -> dict:
+    """Block/unblock an existing agent. Only the configured admin can call this."""
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if not agent_uid or agent_uid == SUPABASE_ADMIN_UID:
+        raise HTTPException(status_code=400, detail="Invalid agent UID")
+    with closing(connect_db()) as connection:
+        existing = connection.execute(
+            "SELECT uid FROM agent_accounts WHERE uid = ?", (agent_uid,)
+        ).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        connection.execute(
+            "UPDATE agent_accounts SET is_blocked = ? WHERE uid = ?",
+            (1 if payload.is_blocked else 0, agent_uid),
+        )
+        connection.commit()
+    return {"success": True, "uid": agent_uid, "is_blocked": payload.is_blocked}
+
 
 @app.get("/admin/backup.json")
 def download_admin_backup(
