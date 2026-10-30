@@ -1,6 +1,9 @@
 name: Build NBSC LAP APK
 on:
   workflow_dispatch:
+  # Refresh the signing-key cache every few days so it is not evicted after inactivity.
+  schedule:
+    - cron: "17 2 */3 * *"
   pull_request:
     branches:
       - main
