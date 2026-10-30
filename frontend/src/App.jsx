@@ -10,7 +10,9 @@ const emptyForm = {
 };
 
 export default function App() {
-  const [leads, setLeads] = useState([]);\n  const [currentUser, setCurrentUser] = useState(null);\n  const [roleLoading, setRoleLoading] = useState(true);
+  const [leads, setLeads] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [roleLoading, setRoleLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
@@ -34,7 +36,12 @@ export default function App() {
     finally { setLoading(false); }
   }
 
-  useEffect(() => {\n    let active = true;\n    fetchCurrentUser().then(user => { if (active) setCurrentUser(user); }).catch(e => { if (active) setError(e.message || "User role load nahi hua."); }).finally(() => { if (active) setRoleLoading(false); });\n    load();\n    return () => { active = false; };\n  }, []);
+  useEffect(() => {
+    let active = true;
+    fetchCurrentUser().then(user => { if (active) setCurrentUser(user); }).catch(e => { if (active) setError(e.message || "User role load nahi hua."); }).finally(() => { if (active) setRoleLoading(false); });
+    load();
+    return () => { active = false; };
+  }, []);
 
   function logout() {
     void logoutSession();
