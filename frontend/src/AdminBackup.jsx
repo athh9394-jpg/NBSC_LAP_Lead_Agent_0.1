@@ -20,8 +20,14 @@ function saveBlobInAndroid(blob, fileName) {
           return;
         }
         try {
-          bridge.saveBase64(fileName, blob.type || "application/json", result.slice(comma + 1));
-          resolve(true);
+          const saveResult = bridge.saveBase64(fileName, blob.type || "application/json", result.slice(comma + 1));
+          if (typeof saveResult === "string" && saveResult.startsWith("OK:")) {
+            resolve(saveResult.slice(3));
+          } else if (typeof saveResult === "string" && saveResult.startsWith("ERROR:")) {
+            reject(new Error(saveResult.slice(6)));
+          } else {
+            reject(new Error("Android save confirmation nahi mila. Nayi APK install karke dobara try karein."));
+          }
         } catch (error) {
           reject(new Error(error?.message || "Android Downloads mein save nahi ho paya."));
         }
@@ -62,7 +68,7 @@ export default function AdminBackup() {
 
       const nativeSaved = await saveBlobInAndroid(blob, fileName);
       if (nativeSaved) {
-        setMessage("Backup Android ko save karne ke liye bhej diya gaya hai. Downloads folder check karein.");
+        setMessage(`Backup Downloads mein save ho gaya: ${nativeSaved}`);
       } else {
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
