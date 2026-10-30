@@ -126,6 +126,16 @@ jobs:
           keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey
       - name: Build debug APK
         run: cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+      - name: Sign APK with the cached stable debug key
+        run: |
+          APK="android/app/build/outputs/apk/debug/app-debug.apk"
+          SIGNED="android/app/build/outputs/apk/debug/app-debug-stable.apk"
+          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          test -s "$APK"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" sign --ks "$HOME/.android/debug.keystore" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out "$SIGNED" "$APK"
+          mv "$SIGNED" "$APK"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
       - name: Verify APK and calculate SHA-256
         run: |
           APK="android/app/build/outputs/apk/debug/app-debug.apk"
