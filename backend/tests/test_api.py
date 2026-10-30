@@ -236,3 +236,44 @@ def test_assigned_agent_can_open_lead_details_and_followups(client):
 
     history = client.get(f"/lead/{lead_id}/followups", headers=other_headers)
     assert history.status_code == 200, history.text
+
+
+def test_admin_backup_requires_admin_and_exports_valid_json(client):
+    # Unauthenticated and ordinary agent sessions must never export customer data.
+    assert client.get("/admin/backup.json").status_code == 401
+    agent_headers = {"Authorization": "Bearer test-only-token"}
+    assert client.get("/admin/backup.json", headers=agent_headers).status_code == 403
+
+    admin_headers = {"Authorization": "Bearer admin-test-token"}
+    created = client.post(
+        "/lead",
+        json={
+            "name": "Backup Test Customer",
+            "phone": "9876543210",
+            "consent_status": "yes",
+            "notes": "isolated test record",
+        },
+        headers=agent_headers,
+    )
+    assert created.status_code == 200, created.text
+    lead_id = created.json()["lead"]["id"]
+
+    followup = client.post(
+        f"/lead/{lead_id}/followups",
+        json={"channel": "call", "outcome": "connected", "notes": "backup test"},
+        headers=agent_headers,
+    )
+    assert followup.status_code == 200, followup.text
+
+    response = client.get("/admin/backup.json", headers=admin_headers)
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.headers["cache-control"] == "no-store"
+    assert "attachment;" in response.headers["content-disposition"]
+
+    backup = response.json()
+    assert backup["app"] == "NBSC LAP Lead Agent"
+    assert backup["format_version"] == 1
+    assert backup["counts"] == {"leads": 1, "followups": 1}
+    assert backup["leads"][0]["id"] == lead_id
+    assert backup["followups"][0]["lead_id"] == lead_id
