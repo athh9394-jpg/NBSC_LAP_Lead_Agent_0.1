@@ -619,8 +619,8 @@ def get_lead(
 ) -> dict:
     with closing(connect_db()) as connection:
         row = connection.execute(
-            "SELECT * FROM leads WHERE id = ?" + ("" if user["is_admin"] else " AND owner_uid = ?"),
-            (lead_id,) if user["is_admin"] else (lead_id, user["uid"]),
+            "SELECT * FROM leads WHERE id = ?" + ("" if user["is_admin"] else " AND (owner_uid = ? OR assigned_to_uid = ?)"),
+            (lead_id,) if user["is_admin"] else (lead_id, user["uid"], user["uid"]),
         ).fetchone()
 
     if not row:
