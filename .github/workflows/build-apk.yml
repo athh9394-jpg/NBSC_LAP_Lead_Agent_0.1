@@ -99,10 +99,10 @@ jobs:
       - name: Install native backup download bridge
         run: |
           test -s ../android/app/src/main/java/com/nbsc/laplead/MainActivity.java
-          mkdir -p android/app/src/main/java/com/nbsc/lapleadagent
-          sed 's/^package com\.nbsc\.laplead;$/package com.nbsc.lapleadagent;/' ../android/app/src/main/java/com/nbsc/laplead/MainActivity.java > android/app/src/main/java/com/nbsc/lapleadagent/MainActivity.java
-          grep -q 'package com.nbsc.lapleadagent;' android/app/src/main/java/com/nbsc/lapleadagent/MainActivity.java
-          grep -q 'installBlobDownloadHandler' android/app/src/main/java/com/nbsc/lapleadagent/MainActivity.java
+          mkdir -p android/app/src/main/java/com/nbsc/laplead
+          cp ../android/app/src/main/java/com/nbsc/laplead/MainActivity.java android/app/src/main/java/com/nbsc/laplead/MainActivity.java
+          grep -q 'package com.nbsc.laplead;' android/app/src/main/java/com/nbsc/laplead/MainActivity.java
+          grep -q 'installBlobDownloadHandler' android/app/src/main/java/com/nbsc/laplead/MainActivity.java
       - name: Build debug APK
         run: cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
       - name: Verify APK and calculate SHA-256
