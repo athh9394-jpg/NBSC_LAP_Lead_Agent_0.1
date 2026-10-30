@@ -54,13 +54,13 @@ export default function AuthGate(){
           throw new Error("Is email se account pehle se registered ho sakta hai. Login karein ya Forgot password se password reset karein.");
         }
         M("verify-register");
-        S("Signup request process ho gayi. Supabase ke Confirm Signup email mein OTP configured hona chahiye. Inbox aur Spam/Junk check karein.");
+        S("Signup request process ho gayi. Email delivery ke liye Supabase SMTP aur Confirm Signup template configured hona chahiye. Inbox aur Spam/Junk check karein.");
         return;
       }
       if(mode==="forgot"){
         await call("recover",{email});
         M("verify-reset");
-        S("Password recovery email request ho gayi. Supabase ke Reset Password email template mein OTP configured hona chahiye. Inbox aur Spam/Junk check karein.");
+        S("Password recovery email request ho gayi. Inbox aur Spam/Junk check karein.");
         return;
       }
       if(mode==="verify-register"){
@@ -87,6 +87,24 @@ export default function AuthGate(){
     }finally{B(false);}
   }
 
+  async function resendCode(){
+    B(true); S("");
+    try{
+      if(!email||!email.includes("@")||!email.includes(".")) throw new Error("Valid email address enter karein.");
+      if(mode==="verify-register"){
+        await call("resend",{type:"signup",email});
+        S("Signup verification email dobara request ho gayi. Inbox aur Spam/Junk check karein; resend limit ho to thoda intezar karein.");
+      }else if(mode==="verify-reset"){
+        await call("recover",{email});
+        S("Password reset email dobara request ho gayi. Inbox aur Spam/Junk check karein; resend limit ho to thoda intezar karein.");
+      }
+    }catch(e){
+      const raw=e?.message||"OTP dobara mangane mein error hua.";
+      const helpful=raw.includes("fetch")?"Server se connection nahi ho pa raha. Internet aur Supabase URL check karein.":raw;
+      S(helpful);
+    }finally{B(false);}
+  }
+
   const verify=mode==="verify-register"||mode==="verify-reset";
   return <main className="auth-shell">
     <form className="auth-card" onSubmit={submit}>
@@ -106,7 +124,7 @@ export default function AuthGate(){
       <button className="auth-submit" disabled={busy}>{busy?"Please wait…":verify?"Verify email OTP":mode==="login"?"Login":mode==="register"?"Register & send email OTP":"Send password reset OTP"}</button>
       <div className="auth-links">
         {!verify&&<>{mode!=="login"&&<button type="button" onClick={()=>{M("login");S("");O("");}}>Login</button>}{mode!=="register"&&<button type="button" onClick={()=>{M("register");S("");O("");}}>Register</button>}{mode!=="forgot"&&<button type="button" onClick={()=>{M("forgot");S("");O("");}}>Forgot password?</button>}</>}
-        {verify&&<button type="button" onClick={()=>{M("forgot");S("OTP dobara mangane ke liye apna email enter karein.");O("");}}>Request a new OTP</button>}
+        {verify&&<button type="button" disabled={busy} onClick={resendCode}>{busy?"Please wait…":mode==="verify-register"?"Resend signup OTP":"Resend password reset OTP"}</button>}
       </div>
       {msg&&<p className="auth-message" role="status" aria-live="polite">{msg}</p>}
       <small className="auth-note">Agent signup and password recovery use email OTP. Admin email/password login remains supported. Supabase Email Auth and an OTP-enabled email template/SMTP provider must be configured.</small>
