@@ -153,6 +153,48 @@ def test_followup_is_blocked_when_customer_declines_contact(client):
     assert "declined follow-up" in response.json()["detail"]
 
 
+def test_admin_can_list_and_block_agents(client):
+    agent_headers = {"Authorization": "Bearer test-only-token"}
+    admin_headers = {"Authorization": "Bearer admin-test-token"}
+
+    # First authenticated agent request creates the managed agent record.
+    assert client.get("/leads", headers=agent_headers).status_code == 200
+    listed = client.get("/admin/agents", headers=admin_headers)
+    assert listed.status_code == 200, listed.text
+    agents = listed.json()["agents"]
+    assert any(agent["uid"] == "test-agent-uid" for agent in agents)
+
+    blocked = client.patch(
+        "/admin/agents/test-agent-uid/block",
+        json={"is_blocked": True},
+        headers=admin_headers,
+    )
+    assert blocked.status_code == 200, blocked.text
+    assert blocked.json()["is_blocked"] is True
+
+    rejected = client.get("/leads", headers=agent_headers)
+    assert rejected.status_code == 403
+
+    unblocked = client.patch(
+        "/admin/agents/test-agent-uid/block",
+        json={"is_blocked": False},
+        headers=admin_headers,
+    )
+    assert unblocked.status_code == 200, unblocked.text
+    assert client.get("/leads", headers=agent_headers).status_code == 200
+
+
+def test_non_admin_cannot_manage_agents(client):
+    headers = {"Authorization": "Bearer test-only-token"}
+    assert client.get("/admin/agents", headers=headers).status_code == 403
+    response = client.patch(
+        "/admin/agents/other-agent-uid/block",
+        json={"is_blocked": True},
+        headers=headers,
+    )
+    assert response.status_code == 403
+
+
 def test_auth_service_outage_returns_503_without_marking_session_invalid(client, monkeypatch):
     def auth_unavailable(request, timeout=8):
         raise urllib.error.URLError("simulated network outage")
