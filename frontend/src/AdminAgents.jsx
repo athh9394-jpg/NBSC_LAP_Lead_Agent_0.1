@@ -81,7 +81,7 @@ export default function AdminAgents() {
 
   return <section className="panel">
     <div className="panel-head">
-      <div><h2>Admin · Agent Management</h2><p>Agent name/email, UID, leads aur access status</p></div>
+      <div><h2>Admin · Agent Management</h2><p>Agent name/email, assigned leads aur access status</p></div>
       <button type="button" className="refresh" onClick={load} disabled={loading}>{loading ? "Loading…" : "Refresh agents"}</button>
     </div>
     {message && <p role="status">{message}</p>}
@@ -100,9 +100,9 @@ export default function AdminAgents() {
     {loading ? <div className="state">Agents load ho rahe hain…</div> :
       agents.length === 0 ? <div className="state">Abhi koi agent record nahi mila. Agent ke pehli baar login karne par record banega.</div> :
       <div className="table-wrap"><table>
-        <thead><tr><th>Agent identity</th><th>Agent UID</th><th>Leads</th><th>Activity</th><th>Created</th><th>Status</th><th>Action</th></tr></thead>
+        <thead><tr><th>Agent</th><th>Leads</th><th>Activity</th><th>Created</th><th>Status</th><th>Action</th></tr></thead>
         <tbody>{agents.map(agent => <tr key={agent.uid}>
-          <td style={{minWidth:180,wordBreak:"break-word"}}><b>{agent.display_name || "Name not set"}</b><small style={{display:"block",marginTop:4}}>{agent.email || "Email unavailable"}</small></td><td style={{maxWidth:240,wordBreak:"break-all"}}>{agent.uid}</td>
+          <td style={{minWidth:180,wordBreak:"break-word"}}><b>{agent.display_name || "Name not set"}</b><small style={{display:"block",marginTop:4}}>{agent.email || "Email unavailable"}</small></td>
           <td>{agent.lead_count ?? 0}</td>
           <td><button type="button" className="refresh" onClick={() => void openAgent(agent)}>Open activity</button></td>
           <td>{agent.created_at ? new Date(agent.created_at).toLocaleDateString() : "—"}</td>
@@ -113,6 +113,6 @@ export default function AdminAgents() {
         </tr>)}</tbody>
       </table></div>}
 
-    {selectedAgent && <section className="panel" style={{marginTop:16}}><div className="panel-head"><div><h3>Agent Activity</h3><p>{selectedAgent.agent.display_name || selectedAgent.agent.email || selectedAgent.agent.uid}</p><p>Email/Login ID: {selectedAgent.agent.email || "Email unavailable — agent ko dobara sign in karna hoga"}</p><p>UID: {selectedAgent.agent.uid}</p></div><button type="button" className="refresh" onClick={() => setSelectedAgent(null)}>Close</button></div>{activityLoading ? <div className="state">Agent activity load ho rahi hai…</div> : activityError ? <p role="alert">{activityError}</p> : <><h4>Leads ({selectedAgent.leads.length})</h4>{selectedAgent.leads.length ? <div className="table-wrap"><table><thead><tr><th>Lead</th><th>Phone</th><th>Status</th><th>Ownership</th></tr></thead><tbody>{selectedAgent.leads.map(lead => <tr key={lead.id}><td>{lead.name}</td><td>{lead.phone}</td><td>{lead.status}</td><td>{lead.assigned_to_uid === selectedAgent.agent.uid ? "Assigned" : "Created by agent"}</td></tr>)}</tbody></table></div> : <p>No leads created or assigned to this agent.</p>}<h4>Follow-up activity ({selectedAgent.followups.length})</h4>{selectedAgent.followups.length ? <div className="table-wrap"><table><thead><tr><th>Lead</th><th>Channel</th><th>Outcome</th><th>Notes</th><th>Date</th></tr></thead><tbody>{selectedAgent.followups.map(item => <tr key={item.id}><td>{item.lead_name}</td><td>{item.channel}</td><td>{item.outcome}</td><td>{item.notes || "—"}</td><td>{item.created_at ? new Date(item.created_at).toLocaleString() : "—"}</td></tr>)}</tbody></table></div> : <p>No follow-up history found.</p>}</>}</section>}
+    {selectedAgent && <section className="panel" style={{marginTop:16}}><div className="panel-head"><div><h3>Agent Activity</h3><p>{selectedAgent.agent.display_name || selectedAgent.agent.email || selectedAgent.agent.uid}</p><p>Email/Login ID: {selectedAgent.agent.email || "Email unavailable — agent ko dobara sign in karna hoga"}</p></div><button type="button" className="refresh" onClick={() => setSelectedAgent(null)}>Close</button></div>{activityLoading ? <div className="state">Agent activity load ho rahi hai…</div> : activityError ? <p role="alert">{activityError}</p> : <><h4>Leads ({selectedAgent.leads.length})</h4>{selectedAgent.leads.length ? <div className="table-wrap"><table><thead><tr><th>Lead</th><th>Phone</th><th>Status</th><th>Ownership</th></tr></thead><tbody>{selectedAgent.leads.map(lead => <tr key={lead.id}><td>{lead.name}</td><td>{lead.phone}</td><td>{lead.status}</td><td>{lead.assigned_to_uid === selectedAgent.agent.uid ? "Assigned" : "Created by agent"}</td></tr>)}</tbody></table></div> : <p>No leads created or assigned to this agent.</p>}<h4>Follow-up activity ({selectedAgent.followups.length})</h4>{selectedAgent.followups.length ? <div className="table-wrap"><table><thead><tr><th>Lead</th><th>Channel</th><th>Outcome</th><th>Notes</th><th>Date</th></tr></thead><tbody>{selectedAgent.followups.map(item => <tr key={item.id}><td>{item.lead_name}</td><td>{item.channel}</td><td>{item.outcome}</td><td>{item.notes || "—"}</td><td>{item.created_at ? new Date(item.created_at).toLocaleString() : "—"}</td></tr>)}</tbody></table></div> : <p>No follow-up history found.</p>}</>}</section>}
   </section>;
 }
