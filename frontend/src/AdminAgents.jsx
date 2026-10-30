@@ -102,7 +102,7 @@ export default function AdminAgents() {
       <div className="table-wrap"><table>
         <thead><tr><th>Agent</th><th>Leads</th><th>Activity</th><th>Created</th><th>Status</th><th>Action</th></tr></thead>
         <tbody>{agents.map(agent => <tr key={agent.uid}>
-          <td style={{minWidth:180,wordBreak:"break-word"}}><b>{agent.display_name || "Name not set"}</b><small style={{display:"block",marginTop:4}}>{agent.email || "Email unavailable"}</small></td>
+          <td style={{minWidth:180,wordBreak:"break-word"}}><button type="button" className="refresh" style={{display:"block",textAlign:"left",whiteSpace:"normal"}} onClick={() => void openAgent(agent)} aria-label={"Open activity for " + (agent.display_name || agent.email || "agent")}><b>{agent.display_name || "Name not set"}</b></button><small style={{display:"block",marginTop:4}}>{agent.email || "Email unavailable"}</small></td>
           <td>{agent.lead_count ?? 0}</td>
           <td><button type="button" className="refresh" onClick={() => void openAgent(agent)}>Open activity</button></td>
           <td>{agent.created_at ? new Date(agent.created_at).toLocaleDateString() : "—"}</td>
