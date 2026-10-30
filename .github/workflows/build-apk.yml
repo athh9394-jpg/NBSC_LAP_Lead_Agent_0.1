@@ -103,6 +103,26 @@ jobs:
           sed 's/package com.nbsc.laplead;/package com.nbsc.lapleadagent;/' ../android/app/src/main/java/com/nbsc/laplead/MainActivity.java > android/app/src/main/java/com/nbsc/lapleadagent/MainActivity.java
           grep -q 'package com.nbsc.lapleadagent;' android/app/src/main/java/com/nbsc/lapleadagent/MainActivity.java
           grep -q 'saveBase64' android/app/src/main/java/com/nbsc/lapleadagent/MainActivity.java
+      # Keep the debug signing key stable between CI builds so Android can update
+      # the installed test app instead of reporting a package/signature conflict.
+      - name: Restore stable debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: nbsc-lap-debug-keystore-v1
+      - name: Ensure stable debug signing key exists
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -s "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -dname "CN=Android Debug,O=Android,C=US" \
+              -keyalg RSA -keysize 2048 -validity 10000
+          fi
+          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey
       - name: Build debug APK
         run: cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
       - name: Verify APK and calculate SHA-256
