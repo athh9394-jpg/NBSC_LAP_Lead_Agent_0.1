@@ -155,11 +155,25 @@ def init_db() -> None:
             connection.execute("ALTER TABLE leads ADD COLUMN customer_type TEXT DEFAULT 'business'")
         if "owner_uid" not in columns:
             connection.execute("ALTER TABLE leads ADD COLUMN owner_uid TEXT NULL")
+        if "assigned_to_uid" not in columns:
+            connection.execute("ALTER TABLE leads ADD COLUMN assigned_to_uid TEXT NULL")
         connection.execute("""CREATE TABLE IF NOT EXISTS agent_accounts (
             uid TEXT PRIMARY KEY,
             is_blocked INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            email TEXT DEFAULT '',
+            display_name TEXT DEFAULT ''
         )""")
+        if USE_POSTGRES:
+            agent_columns = {row["name"] for row in connection.execute(
+                "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'agent_accounts'"
+            ).fetchall()}
+        else:
+            agent_columns = {row["name"] for row in connection.execute("PRAGMA table_info(agent_accounts)").fetchall()}
+        if "email" not in agent_columns:
+            connection.execute("ALTER TABLE agent_accounts ADD COLUMN email TEXT DEFAULT ''")
+        if "display_name" not in agent_columns:
+            connection.execute("ALTER TABLE agent_accounts ADD COLUMN display_name TEXT DEFAULT ''")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_leads_owner_created ON leads (owner_uid, created_at)")
         connection.execute("""CREATE TABLE IF NOT EXISTS lead_followups (
             id TEXT PRIMARY KEY,
@@ -246,22 +260,32 @@ def require_token(
         if not user.get("id"):
             raise ValueError("Missing user id")
         uid = user["id"]
+        email = (user.get("email") or "").strip().lower()
+        metadata = user.get("user_metadata") or {}
+        display_name = (metadata.get("full_name") or metadata.get("name") or metadata.get("display_name") or "").strip()
         is_admin = bool(SUPABASE_ADMIN_UID and uid == SUPABASE_ADMIN_UID)
         with closing(connect_db()) as connection:
             account = connection.execute(
                 "SELECT is_blocked FROM agent_accounts WHERE uid = ?", (uid,)
             ).fetchone()
-            if account is None and not is_admin:
-                # Track authenticated agents so the admin can see and manage them.
-                connection.execute(
-                    "INSERT INTO agent_accounts (uid, is_blocked, created_at) VALUES (?, 0, ?)",
-                    (uid, datetime.now(timezone.utc).isoformat()),
-                )
+            if not is_admin:
+                if account is None:
+                    connection.execute(
+                        "INSERT INTO agent_accounts (uid, is_blocked, created_at, email, display_name) VALUES (?, 0, ?, ?, ?)",
+                        (uid, datetime.now(timezone.utc).isoformat(), email, display_name),
+                    )
+                else:
+                    connection.execute(
+                        "UPDATE agent_accounts SET email = ?, display_name = ? WHERE uid = ?",
+                        (email, display_name, uid),
+                    )
                 connection.commit()
-                account = {"is_blocked": 0}
+                account = connection.execute(
+                    "SELECT is_blocked FROM agent_accounts WHERE uid = ?", (uid,)
+                ).fetchone()
         if account and bool(account["is_blocked"]) and not is_admin:
             raise HTTPException(status_code=403, detail="Your agent account is blocked. Contact admin.")
-        return {"uid": uid, "phone": user.get("phone", ""), "is_admin": is_admin}
+        return {"uid": uid, "email": email, "display_name": display_name, "phone": user.get("phone", ""), "is_admin": is_admin}
     except HTTPException:
         raise
     except urllib.error.HTTPError as exc:
@@ -507,7 +531,7 @@ def list_leads(
         if user["is_admin"]:
             rows = connection.execute("SELECT * FROM leads ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
         else:
-            rows = connection.execute("SELECT * FROM leads WHERE owner_uid = ? ORDER BY created_at DESC LIMIT ?", (user["uid"], limit)).fetchall()
+            rows = connection.execute("SELECT * FROM leads WHERE owner_uid = ? OR assigned_to_uid = ? ORDER BY created_at DESC LIMIT ?", (user["uid"], user["uid"], limit)).fetchall()
 
     return {
         "success": True,
@@ -529,8 +553,8 @@ class LeadStatusUpdate(BaseModel):
 @app.get("/lead/{lead_id}/followups")
 def list_followups(lead_id: str, user: dict = Depends(require_token)) -> dict:
     with closing(connect_db()) as connection:
-        exists = connection.execute("SELECT id FROM leads WHERE id = ?" + ("" if user["is_admin"] else " AND owner_uid = ?"),
-            (lead_id,) if user["is_admin"] else (lead_id, user["uid"])).fetchone()
+        exists = connection.execute("SELECT id FROM leads WHERE id = ?" + ("" if user["is_admin"] else " AND (owner_uid = ? OR assigned_to_uid = ?)"),
+            (lead_id,) if user["is_admin"] else (lead_id, user["uid"], user["uid"])).fetchone()
         if not exists:
             raise HTTPException(status_code=404, detail="Lead not found")
         rows = connection.execute(
@@ -551,8 +575,8 @@ def add_followup(lead_id: str, payload: FollowUpCreateRequest, user: dict = Depe
     followup_id = str(uuid.uuid4())
     with closing(connect_db()) as connection:
         exists = connection.execute(
-            "SELECT id, consent_status FROM leads WHERE id = ?" + ("" if user["is_admin"] else " AND owner_uid = ?"),
-            (lead_id,) if user["is_admin"] else (lead_id, user["uid"]),
+            "SELECT id, consent_status FROM leads WHERE id = ?" + ("" if user["is_admin"] else " AND (owner_uid = ? OR assigned_to_uid = ?)"),
+            (lead_id,) if user["is_admin"] else (lead_id, user["uid"], user["uid"]),
         ).fetchone()
         if not exists:
             raise HTTPException(status_code=404, detail="Lead not found")
@@ -580,7 +604,7 @@ def update_lead_status(lead_id: str, payload: LeadStatusUpdate, user: dict = Dep
         raise HTTPException(status_code=422, detail="Invalid lead status")
     now = datetime.now(timezone.utc).isoformat()
     with closing(connect_db()) as connection:
-        cursor = connection.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?" + ("" if user["is_admin"] else " AND owner_uid = ?"), (status, now, lead_id) if user["is_admin"] else (status, now, lead_id, user["uid"]))
+        cursor = connection.execute("UPDATE leads SET status = ?, updated_at = ? WHERE id = ?" + ("" if user["is_admin"] else " AND (owner_uid = ? OR assigned_to_uid = ?)"), (status, now, lead_id) if user["is_admin"] else (status, now, lead_id, user["uid"], user["uid"]))
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Lead not found")
         connection.commit()
@@ -665,6 +689,12 @@ async def whatsapp_webhook(request: Request) -> Response:
 
 
 
+@app.get("/me")
+def current_user(user: dict = Depends(require_token)) -> dict:
+    """Return the authenticated user's identity and role for safe UI rendering."""
+    return {key: user.get(key) for key in ("uid", "email", "display_name", "phone", "is_admin")}
+
+
 @app.get("/admin/agents")
 def list_agents(user: dict = Depends(require_token)) -> dict:
     """List agents seen by the backend; never expose this data to non-admin users."""
@@ -673,18 +703,50 @@ def list_agents(user: dict = Depends(require_token)) -> dict:
     with closing(connect_db()) as connection:
         rows = connection.execute(
             """
-            SELECT a.uid, a.is_blocked, a.created_at,
+            SELECT a.uid, a.email, a.display_name, a.is_blocked, a.created_at,
                    COUNT(l.id) AS lead_count
             FROM agent_accounts a
             LEFT JOIN leads l ON l.owner_uid = a.uid
             WHERE a.uid <> ?
-            GROUP BY a.uid, a.is_blocked, a.created_at
+            GROUP BY a.uid, a.email, a.display_name, a.is_blocked, a.created_at
             ORDER BY a.created_at DESC
             """,
             (SUPABASE_ADMIN_UID,),
         ).fetchall()
     return {"success": True, "agents": [dict(row) for row in rows]}
 
+
+
+
+class AssignLeadRequest(BaseModel):
+    agent_uid: Optional[str] = Field(default=None, max_length=200)
+
+
+@app.get("/admin/leads/assignable")
+def list_assignable_leads(user: dict = Depends(require_token)) -> dict:
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    with closing(connect_db()) as connection:
+        rows = connection.execute("SELECT id, name, phone, city, owner_uid, assigned_to_uid, status, created_at FROM leads ORDER BY created_at DESC LIMIT 500").fetchall()
+        agents = connection.execute("SELECT uid, email, display_name FROM agent_accounts WHERE uid <> ? AND is_blocked = 0 ORDER BY created_at DESC", (SUPABASE_ADMIN_UID,)).fetchall()
+    return {"success": True, "leads": [dict(row) for row in rows], "agents": [dict(row) for row in agents]}
+
+
+@app.patch("/admin/leads/{lead_id}/assign")
+def assign_lead(lead_id: str, payload: AssignLeadRequest, user: dict = Depends(require_token)) -> dict:
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    with closing(connect_db()) as connection:
+        lead = connection.execute("SELECT id FROM leads WHERE id = ?", (lead_id,)).fetchone()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        if payload.agent_uid:
+            agent = connection.execute("SELECT uid FROM agent_accounts WHERE uid = ? AND is_blocked = 0", (payload.agent_uid,)).fetchone()
+            if not agent:
+                raise HTTPException(status_code=404, detail="Active agent not found")
+        connection.execute("UPDATE leads SET assigned_to_uid = ? WHERE id = ?", (payload.agent_uid, lead_id))
+        connection.commit()
+    return {"success": True, "lead_id": lead_id, "assigned_to_uid": payload.agent_uid}
 
 class AgentBlockRequest(BaseModel):
     is_blocked: bool
