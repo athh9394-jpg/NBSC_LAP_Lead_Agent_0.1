@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { fetchAdminAgents, setAgentBlocked, fetchAssignableLeads, assignLeadToAgent, fetchAgentActivity } from "./services/api";
 
 export default function AdminAgents() {
@@ -13,6 +13,13 @@ export default function AdminAgents() {
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState("");
+  const activityPanelRef = useRef(null);
+
+  useEffect(() => {
+    if (selectedAgent && activityPanelRef.current) {
+      activityPanelRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [selectedAgent]);
 
   async function load() {
     setLoading(true);
@@ -113,6 +120,6 @@ export default function AdminAgents() {
         </tr>)}</tbody>
       </table></div>}
 
-    {selectedAgent && <section className="panel" style={{marginTop:16}}><div className="panel-head"><div><h3>Agent Activity</h3><p>{selectedAgent.agent.display_name || selectedAgent.agent.email || selectedAgent.agent.uid}</p><p>Email/Login ID: {selectedAgent.agent.email || "Email unavailable — agent ko dobara sign in karna hoga"}</p></div><button type="button" className="refresh" onClick={() => setSelectedAgent(null)}>Close</button></div>{activityLoading ? <div className="state">Agent activity load ho rahi hai…</div> : activityError ? <p role="alert">{activityError}</p> : <><h4>Leads ({selectedAgent.leads.length})</h4>{selectedAgent.leads.length ? <div className="table-wrap"><table><thead><tr><th>Lead</th><th>Phone</th><th>Status</th><th>Ownership</th></tr></thead><tbody>{selectedAgent.leads.map(lead => <tr key={lead.id}><td>{lead.name}</td><td>{lead.phone}</td><td>{lead.status}</td><td>{lead.assigned_to_uid === selectedAgent.agent.uid ? "Assigned" : "Created by agent"}</td></tr>)}</tbody></table></div> : <p>No leads created or assigned to this agent.</p>}<h4>Follow-up activity ({selectedAgent.followups.length})</h4>{selectedAgent.followups.length ? <div className="table-wrap"><table><thead><tr><th>Lead</th><th>Channel</th><th>Outcome</th><th>Notes</th><th>Date</th></tr></thead><tbody>{selectedAgent.followups.map(item => <tr key={item.id}><td>{item.lead_name}</td><td>{item.channel}</td><td>{item.outcome}</td><td>{item.notes || "—"}</td><td>{item.created_at ? new Date(item.created_at).toLocaleString() : "—"}</td></tr>)}</tbody></table></div> : <p>No follow-up history found.</p>}</>}</section>}
+    {selectedAgent && <section ref={activityPanelRef} className="panel" style={{marginTop:16, scrollMarginTop:16}}><div className="panel-head"><div><h3>Agent Activity</h3><p>{selectedAgent.agent.display_name || selectedAgent.agent.email || selectedAgent.agent.uid}</p><p>Email/Login ID: {selectedAgent.agent.email || "Email unavailable — agent ko dobara sign in karna hoga"}</p></div><button type="button" className="refresh" onClick={() => setSelectedAgent(null)}>Close</button></div>{activityLoading ? <div className="state">Agent activity load ho rahi hai…</div> : activityError ? <p role="alert">{activityError}</p> : <><h4>Leads ({selectedAgent.leads.length})</h4>{selectedAgent.leads.length ? <div className="table-wrap"><table><thead><tr><th>Lead</th><th>Phone</th><th>Status</th><th>Ownership</th></tr></thead><tbody>{selectedAgent.leads.map(lead => <tr key={lead.id}><td>{lead.name}</td><td>{lead.phone}</td><td>{lead.status}</td><td>{lead.assigned_to_uid === selectedAgent.agent.uid ? "Assigned" : "Created by agent"}</td></tr>)}</tbody></table></div> : <p>No leads created or assigned to this agent.</p>}<h4>Follow-up activity ({selectedAgent.followups.length})</h4>{selectedAgent.followups.length ? <div className="table-wrap"><table><thead><tr><th>Lead</th><th>Channel</th><th>Outcome</th><th>Notes</th><th>Date</th></tr></thead><tbody>{selectedAgent.followups.map(item => <tr key={item.id}><td>{item.lead_name}</td><td>{item.channel}</td><td>{item.outcome}</td><td>{item.notes || "—"}</td><td>{item.created_at ? new Date(item.created_at).toLocaleString() : "—"}</td></tr>)}</tbody></table></div> : <p>No follow-up history found.</p>}</>}</section>}
   </section>;
 }
