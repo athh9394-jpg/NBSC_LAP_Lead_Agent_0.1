@@ -84,7 +84,7 @@ jobs:
         run: |
           cat > capacitor.config.json <<'EOF'
           {
-            "appId": "com.nbsc.lapleadagent",
+            "appId": "com.nbsc.laplead",
             "appName": "NBSC LAP Lead Agent",
             "webDir": "dist",
             "server": {
