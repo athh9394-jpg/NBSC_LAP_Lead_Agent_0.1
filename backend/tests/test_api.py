@@ -206,3 +206,33 @@ def test_auth_service_outage_returns_503_without_marking_session_invalid(client,
     )
     assert response.status_code == 503
     assert "temporarily unavailable" in response.json()["detail"]
+
+
+def test_assigned_agent_can_open_lead_details_and_followups(client):
+    owner_headers = {"Authorization": "Bearer test-only-token"}
+    other_headers = {"Authorization": "Bearer other-agent-token"}
+    admin_headers = {"Authorization": "Bearer admin-test-token"}
+
+    created = client.post(
+        "/lead",
+        json={"name": "Assigned Lead", "phone": "9876543210", "consent_status": "yes"},
+        headers=owner_headers,
+    )
+    assert created.status_code == 200, created.text
+    lead_id = created.json()["lead"]["id"]
+
+    # Register the receiving agent, then assign the lead as admin.
+    assert client.get("/leads", headers=other_headers).status_code == 200
+    assigned = client.patch(
+        f"/admin/leads/{lead_id}/assign",
+        json={"agent_uid": "other-agent-uid"},
+        headers=admin_headers,
+    )
+    assert assigned.status_code == 200, assigned.text
+
+    detail = client.get(f"/lead/{lead_id}", headers=other_headers)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["lead"]["name"] == "Assigned Lead"
+
+    history = client.get(f"/lead/{lead_id}/followups", headers=other_headers)
+    assert history.status_code == 200, history.text
