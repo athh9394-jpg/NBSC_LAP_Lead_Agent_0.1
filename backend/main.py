@@ -706,7 +706,7 @@ def list_agents(user: dict = Depends(require_token)) -> dict:
             SELECT a.uid, a.email, a.display_name, a.is_blocked, a.created_at,
                    COUNT(l.id) AS lead_count
             FROM agent_accounts a
-            LEFT JOIN leads l ON l.owner_uid = a.uid
+            LEFT JOIN leads l ON (l.owner_uid = a.uid OR l.assigned_to_uid = a.uid)
             WHERE a.uid <> ?
             GROUP BY a.uid, a.email, a.display_name, a.is_blocked, a.created_at
             ORDER BY a.created_at DESC
@@ -721,6 +721,23 @@ def list_agents(user: dict = Depends(require_token)) -> dict:
 class AssignLeadRequest(BaseModel):
     agent_uid: Optional[str] = Field(default=None, max_length=200)
 
+
+
+
+@app.get("/admin/agents/{agent_uid}/activity")
+def get_agent_activity(agent_uid: str, user: dict = Depends(require_token)) -> dict:
+    """Return an agent's identity, leads, and follow-up activity to admins."""
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    with closing(connect_db()) as connection:
+        agent = connection.execute("SELECT uid, email, display_name, is_blocked, created_at FROM agent_accounts WHERE uid = ?", (agent_uid,)).fetchone()
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found. Agent must sign in once to register.")
+        leads = connection.execute("SELECT id, name, phone, city, status, created_at, updated_at, owner_uid, assigned_to_uid FROM leads WHERE owner_uid = ? OR assigned_to_uid = ? ORDER BY updated_at DESC", (agent_uid, agent_uid)).fetchall()
+        followups = connection.execute("SELECT f.id, f.lead_id, f.channel, f.outcome, f.notes, f.created_at, l.name AS lead_name FROM lead_followups f JOIN leads l ON l.id = f.lead_id WHERE l.owner_uid = ? OR l.assigned_to_uid = ? ORDER BY f.created_at DESC LIMIT 200", (agent_uid, agent_uid)).fetchall()
+    identity = dict(agent)
+    identity["display_label"] = identity.get("display_name") or identity.get("email") or identity.get("uid")
+    return {"agent": identity, "leads": [dict(row) for row in leads], "followups": [dict(row) for row in followups]}
 
 @app.get("/admin/leads/assignable")
 def list_assignable_leads(user: dict = Depends(require_token)) -> dict:
