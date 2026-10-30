@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || "https://nbsc-lap-backend-01.onrender.com").replace(/\\/$/, "");
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || "https://nbsc-lap-backend-01.onrender.com").replace(/\/+$/, "");
 
 function saveBlobInAndroid(blob, fileName) {
   return new Promise((resolve, reject) => {
