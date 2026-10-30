@@ -189,3 +189,15 @@ export async function logoutSession() {
 export async function fetchCurrentUser() {
   return request("/me");
 }
+
+
+export async function fetchAssignableLeads() {
+  const data = await request("/admin/leads/assignable");
+  return { leads: Array.isArray(data?.leads) ? data.leads : [], agents: Array.isArray(data?.agents) ? data.agents : [] };
+}
+
+export async function assignLeadToAgent(leadId, agentUid) {
+  return request("/admin/leads/" + encodeURIComponent(leadId) + "/assign", {
+    method: "PATCH", body: JSON.stringify({ agent_uid: agentUid || null })
+  });
+}
