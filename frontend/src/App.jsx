@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createLead, fetchLeads, fetchFollowups, addFollowup, updateLeadStatus, logoutSession } from "./services/api";
 import AdminBackup from "./AdminBackup.jsx";
+import AdminAgents from "./AdminAgents.jsx";
 
 const emptyForm = {
   name: "", phone: "", city: "", customer_type: "business",
@@ -131,6 +132,7 @@ export default function App() {
       <div className="sidebar-note">Sales priority dashboard<br/><small>Private testing starter</small></div>
     </aside>
     <main className="main">
+      <AdminAgents />
       <header className="topbar">
         <div><div className="eyebrow">WORKSPACE / OVERVIEW</div><h1>Sales Dashboard</h1><p>NBSC LAP lead pipeline ka snapshot</p></div>
         <div className="topbar-actions"><button onClick={load} className="refresh" disabled={loading}>↻ Refresh</button><button onClick={logout} className="refresh" type="button">Logout</button></div>
