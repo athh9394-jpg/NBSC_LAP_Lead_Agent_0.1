@@ -1,17 +1,50 @@
 import React, { useState } from "react";
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || "https://nbsc-lap-backend-01.onrender.com").replace(/\/$/, "");
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || "https://nbsc-lap-backend-01.onrender.com").replace(/\\/$/, "");
+
+function saveBlobInAndroid(blob, fileName) {
+  return new Promise((resolve, reject) => {
+    try {
+      const bridge = window.LAPDownload;
+      if (!bridge || typeof bridge.saveBase64 !== "function") {
+        resolve(false);
+        return;
+      }
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Backup file ko read nahi kar paaye."));
+      reader.onload = () => {
+        const result = String(reader.result || "");
+        const comma = result.indexOf(",");
+        if (comma < 0) {
+          reject(new Error("Backup file ka data invalid hai."));
+          return;
+        }
+        try {
+          bridge.saveBase64(fileName, blob.type || "application/json", result.slice(comma + 1));
+          resolve(true);
+        } catch (error) {
+          reject(new Error(error?.message || "Android Downloads mein save nahi ho paya."));
+        }
+      };
+      reader.readAsDataURL(blob);
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
 
 export default function AdminBackup() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
   async function downloadBackup() {
+    if (busy) return;
     setBusy(true);
     setMessage("");
     try {
       const token = localStorage.getItem("nbsc_access_token");
       if (!token) throw new Error("Pehle app mein admin account se login karein.");
+
       const response = await fetch(`${API_BASE}/admin/backup.json`, {
         headers: { Authorization: `Bearer ${token}` },
         cache: "no-store"
@@ -22,18 +55,28 @@ export default function AdminBackup() {
         try { detail = JSON.parse(body).detail || detail; } catch {}
         throw new Error(detail);
       }
+
       const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `nbsc-lap-backup-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-      setMessage("Backup download shuru ho gaya. File ko private jagah par rakhein.");
+      if (!blob.size) throw new Error("Backup file khaali hai; server response check karein.");
+      const fileName = `nbsc-lap-backup-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+
+      const nativeSaved = await saveBlobInAndroid(blob, fileName);
+      if (nativeSaved) {
+        setMessage("Backup Android ko save karne ke liye bhej diya gaya hai. Downloads folder check karein.");
+      } else {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = fileName;
+        link.style.display = "none";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+        setMessage("Browser download request bhej di gayi hai. Downloads folder check karein.");
+      }
     } catch (err) {
-      setMessage(err?.message || "Backup download nahi hua.");
+      setMessage(err?.message || "Backup download nahi hua. Dobara try karein.");
     } finally {
       setBusy(false);
     }
@@ -48,7 +91,7 @@ export default function AdminBackup() {
     <button className="primary-button" type="button" disabled={busy} onClick={downloadBackup}>
       {busy ? "Please wait…" : "Download backup JSON"}
     </button>
-    {message && <p role="status" style={{marginTop:12,overflowWrap:"anywhere"}}>{message}</p>}
+    {message && <p role="status" aria-live="polite" style={{marginTop:12,overflowWrap:"anywhere"}}>{message}</p>}
     <p style={{fontSize:12,marginTop:10,color:"var(--muted,#667085)"}}>Backup mein customer ke personal details honge. Public GitHub ya shared chat mein upload na karein.</p>
   </section>;
 }
