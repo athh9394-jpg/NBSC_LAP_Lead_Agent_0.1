@@ -201,3 +201,8 @@ export async function assignLeadToAgent(leadId, agentUid) {
     method: "PATCH", body: JSON.stringify({ agent_uid: agentUid || null })
   });
 }
+
+
+export async function fetchAgentActivity(uid) {
+  return request("/admin/agents/" + encodeURIComponent(uid) + "/activity");
+}
