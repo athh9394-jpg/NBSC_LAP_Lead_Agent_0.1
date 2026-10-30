@@ -108,46 +108,64 @@ public class MainActivity extends Activity {
 
     private class DownloadBridge {
         @JavascriptInterface
-        public void saveBase64(String fileName, String mimeType, String base64Data) {
-            runOnUiThread(() -> {
-                try {
-                    byte[] bytes;
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        bytes = java.util.Base64.getDecoder().decode(base64Data);
-                    } else {
-                        bytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT);
-                    }
-                    String safeName = (fileName == null || fileName.trim().isEmpty())
-                            ? "nbsc-lap-backup.json" : fileName.replaceAll("[^A-Za-z0-9._-]", "_");
-                    if (!safeName.toLowerCase().endsWith(".json")) safeName += ".json";
-                    String type = (mimeType == null || mimeType.isEmpty()) ? "application/json" : mimeType;
-
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        ContentValues values = new ContentValues();
-                        values.put(MediaStore.Downloads.DISPLAY_NAME, safeName);
-                        values.put(MediaStore.Downloads.MIME_TYPE, type);
-                        values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
-                        values.put(MediaStore.Downloads.IS_PENDING, 1);
-                        Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
-                        if (uri == null) throw new Exception("Could not create download file");
-                        try (OutputStream out = getContentResolver().openOutputStream(uri)) {
-                            if (out == null) throw new Exception("Could not open download file");
-                            out.write(bytes);
-                        }
-                        values.clear();
-                        values.put(MediaStore.Downloads.IS_PENDING, 0);
-                        getContentResolver().update(uri, values, null, null);
-                    } else {
-                        File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-                        if (!dir.exists() && !dir.mkdirs()) throw new Exception("Downloads folder unavailable");
-                        File outFile = new File(dir, safeName);
-                        try (FileOutputStream out = new FileOutputStream(outFile)) { out.write(bytes); }
-                    }
-                    Toast.makeText(MainActivity.this, "Backup saved in Downloads: " + safeName, Toast.LENGTH_LONG).show();
-                } catch (Exception e) {
-                    Toast.makeText(MainActivity.this, "Backup save failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        public String saveBase64(String fileName, String mimeType, String base64Data) {
+            try {
+                if (base64Data == null || base64Data.trim().isEmpty()) {
+                    throw new Exception("Backup data is empty");
                 }
-            });
+                byte[] bytes;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    bytes = java.util.Base64.getDecoder().decode(base64Data);
+                } else {
+                    bytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT);
+                }
+                if (bytes.length == 0) throw new Exception("Backup file is empty");
+
+                String safeName = (fileName == null || fileName.trim().isEmpty())
+                        ? "nbsc-lap-backup.json" : fileName.replaceAll("[^A-Za-z0-9._-]", "_");
+                if (!safeName.toLowerCase().endsWith(".json")) safeName += ".json";
+                String type = (mimeType == null || mimeType.isEmpty()) ? "application/json" : mimeType;
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ContentValues values = new ContentValues();
+                    values.put(MediaStore.Downloads.DISPLAY_NAME, safeName);
+                    values.put(MediaStore.Downloads.MIME_TYPE, type);
+                    values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                    values.put(MediaStore.Downloads.IS_PENDING, 1);
+                    Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                    if (uri == null) throw new Exception("Android could not create the Downloads file");
+                    try (OutputStream out = getContentResolver().openOutputStream(uri)) {
+                        if (out == null) throw new Exception("Android could not open the Downloads file");
+                        out.write(bytes);
+                        out.flush();
+                    } catch (Exception writeError) {
+                        getContentResolver().delete(uri, null, null);
+                        throw writeError;
+                    }
+                    ContentValues ready = new ContentValues();
+                    ready.put(MediaStore.Downloads.IS_PENDING, 0);
+                    int updated = getContentResolver().update(uri, ready, null, null);
+                    if (updated < 1) throw new Exception("Android could not finalize the Downloads file");
+                } else {
+                    File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                    if (!dir.exists() && !dir.mkdirs()) throw new Exception("Downloads folder unavailable");
+                    File outFile = new File(dir, safeName);
+                    try (FileOutputStream out = new FileOutputStream(outFile)) {
+                        out.write(bytes);
+                        out.flush();
+                    }
+                }
+
+                final String savedName = safeName;
+                runOnUiThread(() -> Toast.makeText(MainActivity.this,
+                        "Backup saved in Downloads: " + savedName, Toast.LENGTH_LONG).show());
+                return "OK:" + safeName;
+            } catch (Exception e) {
+                final String reason = e.getMessage() == null ? "Unknown save error" : e.getMessage();
+                runOnUiThread(() -> Toast.makeText(MainActivity.this,
+                        "Backup save failed: " + reason, Toast.LENGTH_LONG).show());
+                return "ERROR:" + reason;
+            }
         }
     }
 
