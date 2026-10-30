@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { createLead, fetchLeads, fetchFollowups, addFollowup, updateLeadStatus, logoutSession } from "./services/api";
+import { createLead, fetchLeads, fetchFollowups, addFollowup, updateLeadStatus, logoutSession, fetchCurrentUser } from "./services/api";
 import AdminBackup from "./AdminBackup.jsx";
 import AdminAgents from "./AdminAgents.jsx";
 
@@ -10,7 +10,7 @@ const emptyForm = {
 };
 
 export default function App() {
-  const [leads, setLeads] = useState([]);
+  const [leads, setLeads] = useState([]);\n  const [currentUser, setCurrentUser] = useState(null);\n  const [roleLoading, setRoleLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
@@ -34,7 +34,7 @@ export default function App() {
     finally { setLoading(false); }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {\n    let active = true;\n    fetchCurrentUser().then(user => { if (active) setCurrentUser(user); }).catch(e => { if (active) setError(e.message || "User role load nahi hua."); }).finally(() => { if (active) setRoleLoading(false); });\n    load();\n    return () => { active = false; };\n  }, []);
 
   function logout() {
     void logoutSession();
@@ -132,9 +132,9 @@ export default function App() {
       <div className="sidebar-note">Sales priority dashboard<br/><small>Private testing starter</small></div>
     </aside>
     <main className="main">
-      <AdminAgents />
+      {!roleLoading && currentUser?.is_admin && <AdminAgents />}
       <header className="topbar">
-        <div><div className="eyebrow">WORKSPACE / OVERVIEW</div><h1>Sales Dashboard</h1><p>NBSC LAP lead pipeline ka snapshot</p></div>
+        <div><div className="eyebrow">WORKSPACE / OVERVIEW</div><h1>Sales Dashboard</h1><p>NBSC LAP lead pipeline ka snapshot</p>{currentUser && <p className="user-identity">Logged in: {currentUser.display_name || currentUser.email || currentUser.uid} · {currentUser.is_admin ? "Admin" : "Agent"}</p>}</div>
         <div className="topbar-actions"><button onClick={load} className="refresh" disabled={loading}>↻ Refresh</button><button onClick={logout} className="refresh" type="button">Logout</button></div>
       </header>
 
@@ -174,7 +174,7 @@ export default function App() {
           {visible.map(lead=><tr key={lead.id} className="clickable-row" onClick={() => openLead(lead)} title="Tap karke complete lead details dekhein"><td><div className="person"><span className="avatar">{(lead.name || "L").slice(0,1).toUpperCase()}</span><div><b>{lead.name || "Unnamed lead"}</b><small>{lead.source || "Unknown source"}</small></div></div></td><td>{lead.phone || "—"}</td><td><span className={`type-pill ${lead.customer_type || "business"}`}>{lead.customer_type === "salary" ? "Salary" : "Business"}</span></td><td>{lead.city || "—"}</td><td>{money(lead.loan_amount)}</td><td>{money(lead.monthly_income)}</td><td><span className={`badge ${lead.qualification_label || "cold"}`}>{lead.qualification_label || "cold"}</span></td><td><span className="status">{lead.lead_status || "new"}</span></td><td><b>{lead.qualification_score ?? 0}</b><span className="outof"> / 100</span></td></tr>)}
         </tbody></table></div>}
       </section>
-      <AdminBackup />
+      {!roleLoading && currentUser?.is_admin && <AdminBackup />}
       <footer>NBSC LAP Lead Agent · Lead score sirf sales follow-up priority ke liye hai, loan approval nahi.</footer>
       {selectedLead && <div className="modal-backdrop" onClick={() => setSelectedLead(null)}><section className="lead-modal" role="dialog" aria-modal="true" aria-label="Lead details" onClick={e => e.stopPropagation()}>
         <div className="modal-header"><div><span className="eyebrow">LEAD DETAILS</span><h2>{selectedLead.name || "Unnamed lead"}</h2><p>{selectedLead.city || "City not provided"} · {selectedLead.customer_type === "salary" ? "Salary customer" : "Business customer"}</p></div><button className="modal-close" onClick={() => setSelectedLead(null)} aria-label="Close">✕</button></div>
