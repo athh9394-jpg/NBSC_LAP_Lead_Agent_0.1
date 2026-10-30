@@ -144,6 +144,18 @@ export async function updateLeadStatus(id, status) {
 }
 
 
+export async function fetchAdminAgents() {
+  const data = await request("/admin/agents");
+  return Array.isArray(data?.agents) ? data.agents : [];
+}
+
+export async function setAgentBlocked(uid, isBlocked) {
+  return request(`/admin/agents/${encodeURIComponent(uid)}/block`, {
+    method: "PATCH",
+    body: JSON.stringify({ is_blocked: Boolean(isBlocked) })
+  });
+}
+
 // Revoke the Supabase session when possible; always clear local credentials even offline.
 export async function logoutSession() {
   const accessToken = localStorage.getItem("nbsc_access_token") || "";
