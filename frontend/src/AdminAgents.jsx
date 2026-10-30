@@ -46,16 +46,16 @@ export default function AdminAgents() {
 
   return <section className="panel">
     <div className="panel-head">
-      <div><h2>Admin · Agent Management</h2><p>Agent UID, assigned leads aur access status</p></div>
+      <div><h2>Admin · Agent Management</h2><p>Agent name/email, UID, leads aur access status</p></div>
       <button type="button" className="refresh" onClick={load} disabled={loading}>{loading ? "Loading…" : "Refresh agents"}</button>
     </div>
     {message && <p role="status">{message}</p>}
     {loading ? <div className="state">Agents load ho rahe hain…</div> :
       agents.length === 0 ? <div className="state">Abhi koi agent record nahi mila. Agent ke pehli baar login karne par record banega.</div> :
       <div className="table-wrap"><table>
-        <thead><tr><th>Agent UID</th><th>Leads</th><th>Created</th><th>Status</th><th>Action</th></tr></thead>
+        <thead><tr><th>Agent identity</th><th>Agent UID</th><th>Leads</th><th>Created</th><th>Status</th><th>Action</th></tr></thead>
         <tbody>{agents.map(agent => <tr key={agent.uid}>
-          <td style={{maxWidth:240,wordBreak:"break-all"}}>{agent.uid}</td>
+          <td style={{minWidth:180,wordBreak:"break-word"}}><b>{agent.display_name || "Name not set"}</b><small style={{display:"block",marginTop:4}}>{agent.email || "Email unavailable"}</small></td><td style={{maxWidth:240,wordBreak:"break-all"}}>{agent.uid}</td>
           <td>{agent.lead_count ?? 0}</td>
           <td>{agent.created_at ? new Date(agent.created_at).toLocaleDateString() : "—"}</td>
           <td>{agent.is_blocked ? "Blocked" : "Active"}</td>
