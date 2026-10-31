@@ -277,3 +277,27 @@ def test_admin_backup_requires_admin_and_exports_valid_json(client):
     assert backup["counts"] == {"leads": 1, "followups": 1}
     assert backup["leads"][0]["id"] == lead_id
     assert backup["followups"][0]["lead_id"] == lead_id
+
+
+
+def test_non_admin_cannot_access_admin_activity_assignment_or_assignable_leads(client):
+    agent_headers = {"Authorization": "Bearer test-only-token"}
+
+    activity = client.get(
+        "/admin/agents/other-agent-uid/activity",
+        headers=agent_headers,
+    )
+    assert activity.status_code == 403
+
+    assignable = client.get(
+        "/admin/leads/assignable",
+        headers=agent_headers,
+    )
+    assert assignable.status_code == 403
+
+    assignment = client.patch(
+        "/admin/leads/nonexistent-lead-id/assign",
+        json={"agent_uid": "other-agent-uid"},
+        headers=agent_headers,
+    )
+    assert assignment.status_code == 403
