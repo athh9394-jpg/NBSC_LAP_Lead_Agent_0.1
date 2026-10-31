@@ -53,21 +53,36 @@ function clearSessionAndReturnToLogin() {
   window.location.reload();
 }
 
-async function request(path, options = {}, retry = true) {
+async function request(path, options = {}, retry = true, networkAttempt = 0) {
   const token = localStorage.getItem("nbsc_access_token") || "";
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
-      ...(options.headers || {})
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 45000);
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+        ...(options.headers || {})
+      }
+    });
+  } catch (error) {
+    if (networkAttempt < 2 && (error?.name === "TypeError" || error?.name === "AbortError")) {
+      await new Promise(resolve => setTimeout(resolve, 1200 * (networkAttempt + 1)));
+      return request(path, options, retry, networkAttempt + 1);
     }
-  });
+    if (error?.name === "AbortError") throw new Error("Backend start hone mein der ho rahi hai. Kripya Try again dabayein.");
+    throw new Error("Server se connection nahi ho pa raha. Server wake-up/network ke liye thoda intezar karke Try again dabayein.");
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (res.status === 401 && retry) {
     try {
       const newToken = await refreshSession();
-      if (newToken) return request(path, options, false);
+      if (newToken) return request(path, options, false, 0);
       clearSessionAndReturnToLogin();
     } catch {
       clearSessionAndReturnToLogin();
@@ -85,10 +100,8 @@ async function request(path, options = {}, retry = true) {
     }
     throw new Error(`API ${res.status}: ${message}`);
   }
-
   return res.json();
 }
-
 function normalizeLead(lead) {
   const score = Number(lead.qualification_score ?? lead.score ?? 0);
   return {
