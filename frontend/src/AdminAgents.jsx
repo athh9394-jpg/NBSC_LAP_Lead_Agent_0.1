@@ -86,9 +86,9 @@ export default function AdminAgents() {
 
   if (!visible) return message ? <section className="panel"><p role="status">{message}</p></section> : null;
 
-  return <section className="panel">
+  return <section id="lead-assignment" className="panel admin-agents-panel">
     <div className="panel-head">
-      <div><h2>Admin · Agent Management</h2><p>Agent name/email, assigned leads aur access status</p></div>
+      <div><h2>Lead Assignment &amp; Agent Management</h2><p>Leads ko active agents ko assign karein aur unki activity manage karein</p></div>
       <button type="button" className="refresh" onClick={load} disabled={loading}>{loading ? "Loading…" : "Refresh agents"}</button>
     </div>
     {message && <p role="status">{message}</p>}
