@@ -198,7 +198,7 @@ export default function App() {
   </div>;
 }
 
-function ChoiceGroup({label,value,onChange,options,compact=false}) { return <fieldset className={"choice-group"+(compact?" compact":"")}><legend>{label}</legend><div className="choice-options">{options.map(option => <button key={option.value} type="button" className={"choice-option"+(option.value===value?" active":"")} aria-pressed={option.value===value} onClick={()=>onChange(option.value)}>{option.label}</button>)}</div></fieldset>; } }
+function ChoiceGroup({label,value,onChange,options,compact=false}) { return <fieldset className={"choice-group"+(compact?" compact":"")}><legend>{label}</legend><div className="choice-options">{options.map(option => <button key={option.value} type="button" className={"choice-option"+(option.value===value?" active":"")} aria-pressed={option.value===value} onClick={()=>onChange(option.value)}>{option.label}</button>)}</div></fieldset>; }
 function Detail({label,value}) { return <div className="detail-item"><small>{label}</small><b>{value || "—"}</b></div>; }
 function statusLabel(value) { return ({new:"New",follow_up:"Follow-up in progress",converted:"Converted / Loan done",not_converted:"Not converted",not_interested:"Not interested"})[value] || value || "New"; }
 function channelLabel(value) { return ({call:"Phone call",whatsapp:"WhatsApp",in_person:"In person",other:"Other"})[value] || value; }
