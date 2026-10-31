@@ -637,19 +637,24 @@ def get_lead(
 
 @app.post("/webhook/whatsapp")
 async def whatsapp_webhook(request: Request) -> Response:
+    # Fail closed: never accept unsigned webhook traffic when Twilio verification
+    # is not configured on the server.
+    if not TWILIO_AUTH_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="WhatsApp webhook is not configured on the server",
+        )
+
     form = await request.form()
+    signature = request.headers.get("X-Twilio-Signature", "")
+    validator = RequestValidator(TWILIO_AUTH_TOKEN)
+    form_data = {key: value for key, value in form.items()}
 
-    # Validate Twilio's signature when an auth token is configured.
-    if TWILIO_AUTH_TOKEN:
-        signature = request.headers.get("X-Twilio-Signature", "")
-        validator = RequestValidator(TWILIO_AUTH_TOKEN)
-        form_data = {key: value for key, value in form.items()}
-
-        if not validator.validate(str(request.url), form_data, signature):
-            raise HTTPException(
-                status_code=403,
-                detail="Invalid Twilio signature",
-            )
+    if not validator.validate(str(request.url), form_data, signature):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid Twilio signature",
+        )
 
     incoming_body = str(form.get("Body", "")).strip().lower()
     response = MessagingResponse()
