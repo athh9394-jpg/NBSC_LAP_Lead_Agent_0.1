@@ -19,6 +19,7 @@ export default function App() {
   const [filter, setFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [stageFilter, setStageFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("recent");
   const [removingLeadId, setRemovingLeadId] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
@@ -129,10 +130,14 @@ export default function App() {
     total: leads.length,
     hot: leads.filter(x => x.qualification_label === "hot").length,
     warm: leads.filter(x => x.qualification_label === "warm").length,
-    cold: leads.filter(x => x.qualification_label === "cold").length
+    cold: leads.filter(x => x.qualification_label === "cold").length,
+    fresh: leads.filter(x => (x.lead_status || "new") === "new").length,
+    conversation: leads.filter(x => (x.lead_status || "new") === "follow_up").length,
+    converted: leads.filter(x => (x.lead_status || "new") === "converted").length,
+    rejected: leads.filter(x => ["not_converted", "not_interested"].includes(x.lead_status)).length
   }), [leads]);
 
-  const visible = leads.filter(lead => {
+  const filteredLeads = leads.filter(lead => {
     const matchesPriority = filter === "all" || lead.qualification_label === filter;
     const matchesType = typeFilter === "all" || (lead.customer_type || "business") === typeFilter;
     const status = String(lead.lead_status || "new").toLowerCase();
@@ -144,6 +149,11 @@ export default function App() {
       lead.customer_type, lead.product
     ].some(v => String(v || "").toLowerCase().includes(term));
     return matchesPriority && matchesType && matchesStage && matchesQuery;
+  });
+  const visible = [...filteredLeads].sort((a,b) => {
+    if (sortBy === "priority") return Number(b.qualification_score || 0) - Number(a.qualification_score || 0);
+    if (sortBy === "name") return String(a.name || "").localeCompare(String(b.name || ""));
+    return String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || ""));
   });
 
   return <div className="shell">
@@ -167,6 +177,13 @@ export default function App() {
         <Stat title="Hot Leads" value={counts.hot} color="green" icon="🔥" />
         <Stat title="Warm Leads" value={counts.warm} color="orange" icon="◷" />
         <Stat title="Cold Leads" value={counts.cold} color="red" icon="❄" />
+      </section>
+
+      <section className="pipeline-overview" aria-label="Lead stage summary">
+        <button className={"stage-summary fresh" + (stageFilter === "fresh" ? " selected" : "")} onClick={() => setStageFilter(stageFilter === "fresh" ? "all" : "fresh")}><span>Fresh</span><b>{counts.fresh}</b></button>
+        <button className={"stage-summary conversation" + (stageFilter === "conversation" ? " selected" : "")} onClick={() => setStageFilter(stageFilter === "conversation" ? "all" : "conversation")}><span>Conversation</span><b>{counts.conversation}</b></button>
+        <button className={"stage-summary converted" + (stageFilter === "converted" ? " selected" : "")} onClick={() => setStageFilter(stageFilter === "converted" ? "all" : "converted")}><span>Converted</span><b>{counts.converted}</b></button>
+        <button className={"stage-summary rejected" + (stageFilter === "rejected" ? " selected" : "")} onClick={() => setStageFilter(stageFilter === "rejected" ? "all" : "rejected")}><span>Rejected</span><b>{counts.rejected}</b></button>
       </section>
 
       <section id="add-new-lead" className="panel add-panel">
@@ -193,6 +210,7 @@ export default function App() {
           <ChoiceGroup label="Customer filter" compact value={typeFilter} onChange={setTypeFilter} options={[{value:"all",label:"All types"},{value:"business",label:"Business"},{value:"salary",label:"Salary"}]} />
           <ChoiceGroup label="Pipeline stage" compact value={stageFilter} onChange={setStageFilter} options={[{value:"all",label:"All leads"},{value:"fresh",label:"Fresh"},{value:"conversation",label:"Conversation"},{value:"converted",label:"Converted"},{value:"rejected",label:"Rejected"}]} />
           <ChoiceGroup label="Priority filter" compact value={filter} onChange={setFilter} options={[{value:"all",label:"All priorities"},{value:"hot",label:"Hot"},{value:"warm",label:"Warm"},{value:"cold",label:"Cold"}]} />
+          <ChoiceGroup label="Sort by" compact value={sortBy} onChange={setSortBy} options={[{value:"recent",label:"Recent"},{value:"priority",label:"Priority"},{value:"name",label:"Name"}]} />
         </div>
         {loading ? <div className="state">Leads load ho rahe hain…</div> : error ? <div className="error"><b>Connection error</b><p>{error}</p><p>Backend URL aur VITE_API_TOKEN / APP_API_TOKEN settings check karni hongi.</p><button onClick={load} className="refresh">Try again</button></div> : visible.length === 0 ? <div className="state">Abhi koi lead nahi hai, ya search/filter se match nahi mila.</div> :
         <div className="table-wrap"><table><thead><tr><th>LEAD</th><th>PHONE</th><th>CUSTOMER TYPE</th><th>CITY</th><th>LOAN AMOUNT</th><th>MONTHLY INCOME</th><th>PRIORITY</th><th>STATUS</th><th>SCORE</th><th>ACTION</th></tr></thead><tbody>
