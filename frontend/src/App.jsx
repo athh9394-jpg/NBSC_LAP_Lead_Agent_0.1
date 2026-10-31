@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { createLead, fetchLeads, fetchFollowups, addFollowup, updateLeadStatus, logoutSession, fetchCurrentUser } from "./services/api";
+import { createLead, fetchLeads, fetchFollowups, addFollowup, updateLeadStatus, removeLead, logoutSession, fetchCurrentUser } from "./services/api";
 import AdminBackup from "./AdminBackup.jsx";
 import AdminAgents from "./AdminAgents.jsx";
 
@@ -18,6 +18,8 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [stageFilter, setStageFilter] = useState("all");
+  const [removingLeadId, setRemovingLeadId] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [formMessage, setFormMessage] = useState("");
@@ -79,6 +81,18 @@ export default function App() {
     } catch(e) { setDetailMessage(e.message || "Status update nahi hua."); }
   }
 
+  async function removeLeadFromPipeline(lead) {
+    const name = lead.name || "this lead";
+    if (!window.confirm('"' + name + '" ko active pipeline se remove karna hai? Iske follow-up records safe rahenge.')) return;
+    setRemovingLeadId(lead.id);
+    try {
+      await removeLead(lead.id);
+      setLeads(current => current.filter(item => String(item.id) !== String(lead.id)));
+      if (selectedLead && String(selectedLead.id) === String(lead.id)) setSelectedLead(null);
+    } catch (e) { window.alert(e.message || "Lead remove nahi hua. Dobara try karein."); }
+    finally { setRemovingLeadId(null); }
+  }
+
   function changeForm(event) {
     const { name, value } = event.target;
     setForm(current => ({ ...current, [name]: value }));
@@ -121,12 +135,15 @@ export default function App() {
   const visible = leads.filter(lead => {
     const matchesPriority = filter === "all" || lead.qualification_label === filter;
     const matchesType = typeFilter === "all" || (lead.customer_type || "business") === typeFilter;
+    const status = String(lead.lead_status || "new").toLowerCase();
+    const stage = status === "new" ? "fresh" : status === "follow_up" ? "conversation" : status === "converted" ? "converted" : "rejected";
+    const matchesStage = stageFilter === "all" || stage === stageFilter;
     const term = query.toLowerCase();
     const matchesQuery = [
       lead.name, lead.phone, lead.city, lead.source, lead.lead_status,
       lead.customer_type, lead.product
     ].some(v => String(v || "").toLowerCase().includes(term));
-    return matchesPriority && matchesType && matchesQuery;
+    return matchesPriority && matchesType && matchesStage && matchesQuery;
   });
 
   return <div className="shell">
@@ -174,11 +191,12 @@ export default function App() {
         <div className="toolbar">
           <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search name, phone, city, type..."/>
           <ChoiceGroup label="Customer filter" compact value={typeFilter} onChange={setTypeFilter} options={[{value:"all",label:"All types"},{value:"business",label:"Business"},{value:"salary",label:"Salary"}]} />
+          <ChoiceGroup label="Pipeline stage" compact value={stageFilter} onChange={setStageFilter} options={[{value:"all",label:"All leads"},{value:"fresh",label:"Fresh"},{value:"conversation",label:"Conversation"},{value:"converted",label:"Converted"},{value:"rejected",label:"Rejected"}]} />
           <ChoiceGroup label="Priority filter" compact value={filter} onChange={setFilter} options={[{value:"all",label:"All priorities"},{value:"hot",label:"Hot"},{value:"warm",label:"Warm"},{value:"cold",label:"Cold"}]} />
         </div>
         {loading ? <div className="state">Leads load ho rahe hain…</div> : error ? <div className="error"><b>Connection error</b><p>{error}</p><p>Backend URL aur VITE_API_TOKEN / APP_API_TOKEN settings check karni hongi.</p><button onClick={load} className="refresh">Try again</button></div> : visible.length === 0 ? <div className="state">Abhi koi lead nahi hai, ya search/filter se match nahi mila.</div> :
-        <div className="table-wrap"><table><thead><tr><th>LEAD</th><th>PHONE</th><th>CUSTOMER TYPE</th><th>CITY</th><th>LOAN AMOUNT</th><th>MONTHLY INCOME</th><th>PRIORITY</th><th>STATUS</th><th>SCORE</th></tr></thead><tbody>
-          {visible.map(lead=><tr key={lead.id} className="clickable-row" onClick={() => openLead(lead)} title="Tap karke complete lead details dekhein"><td><div className="person"><span className="avatar">{(lead.name || "L").slice(0,1).toUpperCase()}</span><div><b>{lead.name || "Unnamed lead"}</b><small>{lead.source || "Unknown source"}</small></div></div></td><td>{lead.phone || "—"}</td><td><span className={`type-pill ${lead.customer_type || "business"}`}>{lead.customer_type === "salary" ? "Salary" : "Business"}</span></td><td>{lead.city || "—"}</td><td>{money(lead.loan_amount)}</td><td>{money(lead.monthly_income)}</td><td><span className={`badge ${lead.qualification_label || "cold"}`}>{lead.qualification_label || "cold"}</span></td><td><span className="status">{lead.lead_status || "new"}</span></td><td><b>{lead.qualification_score ?? 0}</b><span className="outof"> / 100</span></td></tr>)}
+        <div className="table-wrap"><table><thead><tr><th>LEAD</th><th>PHONE</th><th>CUSTOMER TYPE</th><th>CITY</th><th>LOAN AMOUNT</th><th>MONTHLY INCOME</th><th>PRIORITY</th><th>STATUS</th><th>SCORE</th><th>ACTION</th></tr></thead><tbody>
+          {visible.map(lead=><tr key={lead.id} className={"clickable-row pipeline-" + (lead.lead_status || "new")} onClick={() => openLead(lead)} title="Tap karke complete lead details dekhein"><td><div className="person"><span className="avatar">{(lead.name || "L").slice(0,1).toUpperCase()}</span><div><b>{lead.name || "Unnamed lead"}</b><small>{lead.source || "Unknown source"}</small></div></div></td><td>{lead.phone || "—"}</td><td><span className={`type-pill ${lead.customer_type || "business"}`}>{lead.customer_type === "salary" ? "Salary" : "Business"}</span></td><td>{lead.city || "—"}</td><td>{money(lead.loan_amount)}</td><td>{money(lead.monthly_income)}</td><td><span className={`badge ${lead.qualification_label || "cold"}`}>{lead.qualification_label || "cold"}</span></td><td><span className="status">{lead.lead_status || "new"}</span></td><td><b>{lead.qualification_score ?? 0}</b><span className="outof"> / 100</span></td><td><button type="button" className="remove-lead-button" disabled={String(removingLeadId)===String(lead.id)} onClick={event=>{event.stopPropagation();removeLeadFromPipeline(lead);}}>{String(removingLeadId)===String(lead.id)?"Removing…":"Remove"}</button></td></tr>)}
         </tbody></table></div>}
       </section>
       {!roleLoading && currentUser?.is_admin && <AdminAgents />}
