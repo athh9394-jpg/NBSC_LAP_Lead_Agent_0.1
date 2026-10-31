@@ -122,11 +122,23 @@ def test_agent_cannot_read_another_agents_lead(client):
     assert lead.status_code == 200
     lead_id = lead.json()["lead"]["id"]
 
-    response = client.get(
-        f"/lead/{lead_id}",
-        headers={"Authorization": "Bearer other-agent-token"},
-    )
+    other_headers = {"Authorization": "Bearer other-agent-token"}
+    response = client.get(f"/lead/{lead_id}", headers=other_headers)
     assert response.status_code == 404
+
+    # An unassigned agent must not mutate a lead it cannot read.
+    followup = client.post(
+        f"/lead/{lead_id}/followups",
+        json={"channel": "call", "outcome": "attempted", "notes": "unauthorized"},
+        headers=other_headers,
+    )
+    assert followup.status_code == 404
+    status = client.patch(
+        f"/lead/{lead_id}/status",
+        json={"status": "converted"},
+        headers=other_headers,
+    )
+    assert status.status_code == 404
 
 
 
@@ -236,6 +248,21 @@ def test_assigned_agent_can_open_lead_details_and_followups(client):
 
     history = client.get(f"/lead/{lead_id}/followups", headers=other_headers)
     assert history.status_code == 200, history.text
+
+    # Assignment grants the receiving agent the same scoped follow-up/status access.
+    followup = client.post(
+        f"/lead/{lead_id}/followups",
+        json={"channel": "call", "outcome": "connected", "notes": "assigned agent test"},
+        headers=other_headers,
+    )
+    assert followup.status_code == 200, followup.text
+    changed = client.patch(
+        f"/lead/{lead_id}/status",
+        json={"status": "follow_up"},
+        headers=other_headers,
+    )
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["lead"]["status"] == "follow_up"
 
 
 def test_admin_backup_requires_admin_and_exports_valid_json(client):
