@@ -328,3 +328,14 @@ def test_non_admin_cannot_access_admin_activity_assignment_or_assignable_leads(c
         headers=agent_headers,
     )
     assert assignment.status_code == 403
+
+
+
+def test_whatsapp_webhook_fails_closed_without_twilio_auth_token(client, monkeypatch):
+    monkeypatch.setattr("main.TWILIO_AUTH_TOKEN", "")
+    response = client.post(
+        "/webhook/whatsapp",
+        data={"Body": "hello", "From": "whatsapp:+919876543210"},
+    )
+    assert response.status_code == 503
+    assert "not configured" in response.json()["detail"]
