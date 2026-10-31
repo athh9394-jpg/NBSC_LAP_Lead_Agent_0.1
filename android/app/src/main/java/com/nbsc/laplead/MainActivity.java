@@ -3,6 +3,8 @@ package com.nbsc.laplead;
 import android.app.Activity;
 import android.app.DownloadManager;
 import android.content.ContentValues;
+import android.content.Intent;
+import android.content.ActivityNotFoundException;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -46,6 +48,10 @@ public class MainActivity extends Activity {
         webView.addJavascriptInterface(new DownloadBridge(), "LAPDownload");
         webView.setWebViewClient(new WebViewClient() {
             @Override
+            public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) { return handleExternalUrl(request.getUrl()); }
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) { return handleExternalUrl(Uri.parse(url)); }
+            @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 if (url != null && url.startsWith(APP_URL)) {
@@ -88,6 +94,27 @@ public class MainActivity extends Activity {
         } else {
             webView.loadUrl(APP_URL);
         }
+    }
+
+    private boolean handleExternalUrl(Uri uri) {
+        if (uri == null) return false;
+        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
+        String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
+        boolean whatsapp = scheme.equals("whatsapp") || scheme.equals("intent") || host.equals("wa.me") || host.equals("api.whatsapp.com") || host.equals("web.whatsapp.com");
+        boolean telephone = scheme.equals("tel");
+        if (!whatsapp && !telephone) return false;
+        try {
+            Intent intent = scheme.equals("intent") ? Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME) : new Intent(Intent.ACTION_VIEW, uri);
+            if (scheme.equals("intent") && intent.resolveActivity(getPackageManager()) == null) {
+                String fallback = intent.getStringExtra("browser_fallback_url");
+                if (fallback != null) startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(fallback)));
+                else Toast.makeText(this, "WhatsApp is not available", Toast.LENGTH_LONG).show();
+                return true;
+            }
+            startActivity(intent);
+        } catch (ActivityNotFoundException e) { Toast.makeText(this, telephone ? "Phone app not available" : "WhatsApp is not installed", Toast.LENGTH_LONG).show(); }
+        catch (Exception e) { Toast.makeText(this, "Could not open external app", Toast.LENGTH_LONG).show(); }
+        return true;
     }
 
     private String safeFileName(String contentDisposition, String url) {
