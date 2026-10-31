@@ -36,3 +36,10 @@ button:disabled{opacity:.6;cursor:not-allowed}
 
 /* WebView-safe tap choices: no native select popup or overlay */
 .choice-group{border:0;padding:0;margin:0;min-width:0}.choice-group legend{padding:0;margin:0 0 8px;font-size:11px;font-weight:700;color:#59657a}.choice-options{display:flex;flex-wrap:wrap;gap:8px;min-width:0}.choice-option{appearance:none;border:1px solid #dfe5ef;border-radius:9px;background:#fff;color:#35435b;padding:11px 13px;min-height:42px;font:600 12px 'DM Sans',sans-serif;line-height:1.35;text-align:left;white-space:normal;cursor:pointer;touch-action:manipulation}.choice-option.active{border-color:#2c70e8;background:#eaf1ff;color:#205dc6;box-shadow:inset 0 0 0 1px #2c70e8}.choice-option:disabled{opacity:.55;cursor:wait}.choice-group.compact .choice-options{gap:6px}.choice-group.compact .choice-option{padding:9px 11px;min-height:38px}.admin-assign-options{min-width:180px;max-width:280px}.admin-assign-options .choice-option{font-size:11px;padding:8px 10px}
+
+/* Dashboard section navigation and ordered workspace layout */
+.nav-item{display:block;text-decoration:none;cursor:pointer;transition:background .15s,color .15s}
+.nav-item:hover{background:#1b2c49;color:#fff}
+.topbar,.add-panel,#lead-pipeline,#lead-assignment{scroll-margin-top:18px}
+.admin-agents-panel{margin-top:22px}
+@media(max-width:700px){.admin-agents-panel{margin-top:16px}}
