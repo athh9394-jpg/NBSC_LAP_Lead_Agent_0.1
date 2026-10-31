@@ -43,3 +43,15 @@ button:disabled{opacity:.6;cursor:not-allowed}
 .topbar,.add-panel,#lead-pipeline,#lead-assignment{scroll-margin-top:18px}
 .admin-agents-panel{margin-top:22px}
 @media(max-width:700px){.admin-agents-panel{margin-top:16px}}
+
+/* Clear visual pipeline stages */
+.pipeline-new td:first-child{border-left:4px solid #3b82f6}
+.pipeline-follow_up td:first-child{border-left:4px solid #eab308}
+.pipeline-converted td:first-child{border-left:4px solid #16a34a}
+.pipeline-not_converted td:first-child,.pipeline-not_interested td:first-child{border-left:4px solid #ef4444}
+.status{display:inline-flex;padding:5px 10px;border-radius:999px;font-weight:700;background:#eaf2ff;color:#1d4ed8}
+.pipeline-follow_up .status{background:#fef3c7;color:#92400e}
+.pipeline-converted .status{background:#dcfce7;color:#166534}
+.pipeline-not_converted .status,.pipeline-not_interested .status{background:#fee2e2;color:#991b1b}
+.remove-lead-button{border:1px solid #fecaca;background:#fff1f2;color:#be123c;border-radius:8px;padding:7px 10px;font-weight:700;cursor:pointer}
+.remove-lead-button:disabled{opacity:.55;cursor:wait}
