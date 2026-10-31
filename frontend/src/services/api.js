@@ -219,3 +219,7 @@ export async function assignLeadToAgent(leadId, agentUid) {
 export async function fetchAgentActivity(uid) {
   return request("/admin/agents/" + encodeURIComponent(uid) + "/activity");
 }
+
+export async function removeLead(id) {
+  return request("/lead/" + encodeURIComponent(id), { method: "DELETE" });
+}
