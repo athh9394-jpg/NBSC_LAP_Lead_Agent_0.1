@@ -157,6 +157,8 @@ def init_db() -> None:
             connection.execute("ALTER TABLE leads ADD COLUMN owner_uid TEXT NULL")
         if "assigned_to_uid" not in columns:
             connection.execute("ALTER TABLE leads ADD COLUMN assigned_to_uid TEXT NULL")
+        if "deleted_at" not in columns:
+            connection.execute("ALTER TABLE leads ADD COLUMN deleted_at TEXT NULL")
         connection.execute("""CREATE TABLE IF NOT EXISTS agent_accounts (
             uid TEXT PRIMARY KEY,
             is_blocked INTEGER NOT NULL DEFAULT 0,
@@ -529,9 +531,9 @@ def list_leads(
 
     with closing(connect_db()) as connection:
         if user["is_admin"]:
-            rows = connection.execute("SELECT * FROM leads ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+            rows = connection.execute("SELECT * FROM leads WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
         else:
-            rows = connection.execute("SELECT * FROM leads WHERE owner_uid = ? OR assigned_to_uid = ? ORDER BY created_at DESC LIMIT ?", (user["uid"], user["uid"], limit)).fetchall()
+            rows = connection.execute("SELECT * FROM leads WHERE deleted_at IS NULL AND (owner_uid = ? OR assigned_to_uid = ?) ORDER BY created_at DESC LIMIT ?", (user["uid"], user["uid"], limit)).fetchall()
 
     return {
         "success": True,
@@ -611,6 +613,22 @@ def update_lead_status(lead_id: str, payload: LeadStatusUpdate, user: dict = Dep
         row = connection.execute("SELECT * FROM leads WHERE id = ?", (lead_id,)).fetchone()
     return {"success": True, "lead": dict(row)}
 
+
+
+@app.delete("/lead/{lead_id}")
+def remove_lead(lead_id: str, user: dict = Depends(require_token)) -> dict:
+    """Soft-delete a lead so accidental removal does not erase its follow-up history."""
+    now = datetime.now(timezone.utc).isoformat()
+    with closing(connect_db()) as connection:
+        cursor = connection.execute(
+            "UPDATE leads SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL"
+            + ("" if user["is_admin"] else " AND (owner_uid = ? OR assigned_to_uid = ?)"),
+            (now, now, lead_id) if user["is_admin"] else (now, now, lead_id, user["uid"], user["uid"]),
+        )
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Lead not found or already removed")
+        connection.commit()
+    return {"success": True, "message": "Lead removed from active pipeline"}
 
 @app.get("/lead/{lead_id}")
 def get_lead(
