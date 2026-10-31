@@ -21,6 +21,8 @@ export default function App() {
   const [stageFilter, setStageFilter] = useState("all");
   const [sortBy, setSortBy] = useState("recent");
   const [removingLeadId, setRemovingLeadId] = useState(null);
+  const [confirmingLead, setConfirmingLead] = useState(null);
+  const [removeNotice, setRemoveNotice] = useState("");
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [formMessage, setFormMessage] = useState("");
@@ -84,13 +86,14 @@ export default function App() {
 
   async function removeLeadFromPipeline(lead) {
     const name = lead.name || "this lead";
-    if (!window.confirm('"' + name + '" ko active pipeline se remove karna hai? Iske follow-up records safe rahenge.')) return;
+    setConfirmingLead(null);
     setRemovingLeadId(lead.id);
     try {
       await removeLead(lead.id);
       setLeads(current => current.filter(item => String(item.id) !== String(lead.id)));
       if (selectedLead && String(selectedLead.id) === String(lead.id)) setSelectedLead(null);
-    } catch (e) { window.alert(e.message || "Lead remove nahi hua. Dobara try karein."); }
+      setRemoveNotice(`"${name}" successfully removed from active pipeline. Follow-up history safe hai.`);
+    } catch (e) { setRemoveNotice("Remove nahi hua: " + (e.message || "Dobara try karein.")); }
     finally { setRemovingLeadId(null); }
   }
 
@@ -214,7 +217,7 @@ export default function App() {
         </div>
         {loading ? <div className="state">Leads load ho rahe hain…</div> : error ? <div className="error"><b>Connection error</b><p>{error}</p><p>Backend URL aur VITE_API_TOKEN / APP_API_TOKEN settings check karni hongi.</p><button onClick={load} className="refresh">Try again</button></div> : visible.length === 0 ? <div className="state">Abhi koi lead nahi hai, ya search/filter se match nahi mila.</div> :
         <div className="table-wrap"><table><thead><tr><th>LEAD</th><th>PHONE</th><th>CUSTOMER TYPE</th><th>CITY</th><th>LOAN AMOUNT</th><th>MONTHLY INCOME</th><th>PRIORITY</th><th>STATUS</th><th>SCORE</th><th>ACTION</th></tr></thead><tbody>
-          {visible.map(lead=><tr key={lead.id} className={"clickable-row pipeline-" + (lead.lead_status || "new")} onClick={() => openLead(lead)} title="Tap karke complete lead details dekhein"><td><div className="person"><span className="avatar">{(lead.name || "L").slice(0,1).toUpperCase()}</span><div><b>{lead.name || "Unnamed lead"}</b><small>{lead.source || "Unknown source"}</small></div></div></td><td>{lead.phone || "—"}</td><td><span className={`type-pill ${lead.customer_type || "business"}`}>{lead.customer_type === "salary" ? "Salary" : "Business"}</span></td><td>{lead.city || "—"}</td><td>{money(lead.loan_amount)}</td><td>{money(lead.monthly_income)}</td><td><span className={`badge ${lead.qualification_label || "cold"}`}>{lead.qualification_label || "cold"}</span></td><td><span className="status">{lead.lead_status || "new"}</span></td><td><b>{lead.qualification_score ?? 0}</b><span className="outof"> / 100</span></td><td><button type="button" className="remove-lead-button" disabled={String(removingLeadId)===String(lead.id)} onClick={event=>{event.stopPropagation();removeLeadFromPipeline(lead);}}>{String(removingLeadId)===String(lead.id)?"Removing…":"Remove"}</button></td></tr>)}
+          {visible.map(lead=><tr key={lead.id} className={"clickable-row pipeline-" + (lead.lead_status || "new")} onClick={() => openLead(lead)} title="Tap karke complete lead details dekhein"><td><div className="person"><span className="avatar">{(lead.name || "L").slice(0,1).toUpperCase()}</span><div><b>{lead.name || "Unnamed lead"}</b><small>{lead.source || "Unknown source"}</small></div></div></td><td>{lead.phone || "—"}</td><td><span className={`type-pill ${lead.customer_type || "business"}`}>{lead.customer_type === "salary" ? "Salary" : "Business"}</span></td><td>{lead.city || "—"}</td><td>{money(lead.loan_amount)}</td><td>{money(lead.monthly_income)}</td><td><span className={`badge ${lead.qualification_label || "cold"}`}>{lead.qualification_label || "cold"}</span></td><td><span className="status">{lead.lead_status || "new"}</span></td><td><b>{lead.qualification_score ?? 0}</b><span className="outof"> / 100</span></td><td><button type="button" className="remove-lead-button" disabled={String(removingLeadId)===String(lead.id)} onClick={event=>{event.stopPropagation();setConfirmingLead(lead);}}>{String(removingLeadId)===String(lead.id)?"Removing…":"Remove"}</button></td></tr>)}
         </tbody></table></div>}
       </section>
       {!roleLoading && currentUser?.is_admin && <AdminAgents />}
@@ -231,6 +234,8 @@ export default function App() {
         <div className="history-list">{detailLoading ? <p>History load ho rahi hai…</p> : followups.length ? followups.map(f => <article className="history-item" key={f.id}><div><b>{channelLabel(f.channel)} · {outcomeLabel(f.outcome)}</b><small>{formatDate(f.created_at)}</small></div><p>{f.notes || "No notes added."}</p></article>) : <p>Abhi tak koi follow-up record nahi hai.</p>}</div>
         {selectedLead.notes && <div className="original-notes"><b>Lead notes</b><p>{selectedLead.notes}</p></div>}
       </section></div>}
+      {removeNotice && <div className="remove-toast" role="status"><span>{removeNotice}</span><button type="button" onClick={()=>setRemoveNotice("")} aria-label="Dismiss">✕</button></div>}
+      {confirmingLead && <div className="remove-dialog-backdrop" onClick={()=>setConfirmingLead(null)}><section className="remove-dialog" role="alertdialog" aria-modal="true" aria-labelledby="remove-dialog-title" onClick={e=>e.stopPropagation()}><div className="remove-dialog-icon">!</div><h2 id="remove-dialog-title">Remove lead?</h2><p><strong>{confirmingLead.name || "This lead"}</strong> ko active pipeline se remove karna hai?</p><p className="remove-dialog-note">Is lead ki follow-up history safe rahegi. Lead active list se hide ho jayegi.</p><div className="remove-dialog-actions"><button type="button" className="remove-cancel" onClick={()=>setConfirmingLead(null)}>Cancel</button><button type="button" className="remove-confirm" disabled={String(removingLeadId)===String(confirmingLead.id)} onClick={()=>removeLeadFromPipeline(confirmingLead)}>{String(removingLeadId)===String(confirmingLead.id)?"Removing…":"Yes, remove"}</button></div></section></div>}
     </main>
   </div>;
 }
