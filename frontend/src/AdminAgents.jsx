@@ -98,10 +98,7 @@ export default function AdminAgents() {
       <thead><tr><th>Lead</th><th>Phone</th><th>Assigned Agent</th><th>Action</th></tr></thead>
       <tbody>{assignableLeads.map(lead => <tr key={lead.id}>
         <td>{lead.name || "Unnamed lead"}</td><td>{lead.phone || "—"}</td>
-        <td><select aria-label={"Assign " + (lead.name || "lead")} value={lead.assigned_to_uid || ""} onChange={event => void assign(lead.id, event.target.value)} disabled={assignmentBusy === lead.id}>
-          <option value="">Unassigned</option>
-          {assignableAgents.map(agent => <option key={agent.uid} value={agent.uid}>{agent.display_name || agent.email || agent.uid}</option>)}
-        </select></td><td>{assignmentBusy === lead.id ? "Saving…" : "Auto-save"}</td>
+        <td><div className="choice-options admin-assign-options"><button type="button" className={"choice-option"+(!lead.assigned_to_uid?" active":"")} disabled={assignmentBusy===lead.id} onClick={()=>void assign(lead.id,"")}>Unassigned</button>{assignableAgents.map(agent=><button type="button" key={agent.uid} className={"choice-option"+(lead.assigned_to_uid===agent.uid?" active":"")} disabled={assignmentBusy===lead.id} onClick={()=>void assign(lead.id,agent.uid)}>{agent.display_name || agent.email || agent.uid}</button>)}</div></td><td>{assignmentBusy === lead.id ? "Saving…" : "Auto-save"}</td>
       </tr>)}</tbody>
     </table></div>}
     {loading ? <div className="state">Agents load ho rahe hain…</div> :
