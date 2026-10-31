@@ -133,14 +133,14 @@ export default function App() {
     <aside className="sidebar">
       <div className="brand"><span className="brand-icon">N</span><div><b>NBSC LAP</b><small>Lead Agent</small></div></div>
       <div className="nav-label">WORKSPACE</div>
-      <div className="nav-item active">▦ &nbsp; Dashboard</div>
-      <div className="nav-item">◉ &nbsp; Leads</div>
-      <div className="nav-item">↗ &nbsp; Follow-ups</div>
+      <a className="nav-item active" href="#sales-dashboard">▦ &nbsp; Sales Dashboard</a>
+      <a className="nav-item" href="#add-new-lead">＋ &nbsp; Add New Lead</a>
+      <a className="nav-item" href="#lead-pipeline">◉ &nbsp; Lead Pipeline</a>
+      <a className="nav-item" href="#lead-assignment">↗ &nbsp; Lead Assignment</a>
       <div className="sidebar-note">Sales priority dashboard<br/><small>Private testing starter</small></div>
     </aside>
     <main className="main">
-      {!roleLoading && currentUser?.is_admin && <AdminAgents />}
-      <header className="topbar">
+      <header id="sales-dashboard" className="topbar">
         <div><div className="eyebrow">WORKSPACE / OVERVIEW</div><h1>Sales Dashboard</h1><p>NBSC LAP lead pipeline ka snapshot</p>{currentUser && <p className="user-identity">Logged in: {currentUser.display_name || currentUser.email || currentUser.uid} · {currentUser.is_admin ? "Admin" : "Agent"}</p>}</div>
         <div className="topbar-actions"><button onClick={load} className="refresh" disabled={loading}>↻ Refresh</button><button onClick={logout} className="refresh" type="button">Logout</button></div>
       </header>
@@ -152,7 +152,7 @@ export default function App() {
         <Stat title="Cold Leads" value={counts.cold} color="red" icon="❄" />
       </section>
 
-      <section className="panel add-panel">
+      <section id="add-new-lead" className="panel add-panel">
         <div className="panel-head"><div><h2>+ Add New Lead</h2><p>Customer details bhar kar record save karein</p></div><span className="pill">Business / Salary</span></div>
         <form className="lead-form" onSubmit={submitLead}>
           <label>Customer Name *<input name="name" value={form.name} onChange={changeForm} minLength="2" maxLength="120" required placeholder="Customer ka naam"/></label>
@@ -169,7 +169,7 @@ export default function App() {
         </form>
       </section>
 
-      <section className="panel">
+      <section id="lead-pipeline" className="panel">
         <div className="panel-head"><div><h2>Lead Pipeline</h2><p>Latest updated leads</p></div><span className="pill">{leads.length} records</span></div>
         <div className="toolbar">
           <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search name, phone, city, type..."/>
@@ -181,6 +181,7 @@ export default function App() {
           {visible.map(lead=><tr key={lead.id} className="clickable-row" onClick={() => openLead(lead)} title="Tap karke complete lead details dekhein"><td><div className="person"><span className="avatar">{(lead.name || "L").slice(0,1).toUpperCase()}</span><div><b>{lead.name || "Unnamed lead"}</b><small>{lead.source || "Unknown source"}</small></div></div></td><td>{lead.phone || "—"}</td><td><span className={`type-pill ${lead.customer_type || "business"}`}>{lead.customer_type === "salary" ? "Salary" : "Business"}</span></td><td>{lead.city || "—"}</td><td>{money(lead.loan_amount)}</td><td>{money(lead.monthly_income)}</td><td><span className={`badge ${lead.qualification_label || "cold"}`}>{lead.qualification_label || "cold"}</span></td><td><span className="status">{lead.lead_status || "new"}</span></td><td><b>{lead.qualification_score ?? 0}</b><span className="outof"> / 100</span></td></tr>)}
         </tbody></table></div>}
       </section>
+      {!roleLoading && currentUser?.is_admin && <AdminAgents />}
       {!roleLoading && currentUser?.is_admin && <AdminBackup />}
       <footer>NBSC LAP Lead Agent · Lead score sirf sales follow-up priority ke liye hai, loan approval nahi.</footer>
       {selectedLead && <div className="modal-backdrop" onClick={() => setSelectedLead(null)}><section className="lead-modal" role="dialog" aria-modal="true" aria-label="Lead details" onClick={e => e.stopPropagation()}>
